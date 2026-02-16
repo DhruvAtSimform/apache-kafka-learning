@@ -1,0 +1,15 @@
+.vscode
+
+*/dist/
+node_modules/
+*.log
+*.tsbuildinfo
+*.env
+*.env.local
+*.env.development
+
+# Ignore platformatic-kafka build output
+platformatic-kafka/dist/    
+
+# Ignore platformatic-kafka logs
+platformatic-kafka/*.log
