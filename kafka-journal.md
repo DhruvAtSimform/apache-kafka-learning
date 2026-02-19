@@ -22,6 +22,7 @@ Kafka powers real-time applications across industries: financial transactions in
 **Event Streaming**: The practice of capturing data in real-time from sources (databases, sensors, applications) as streams of events, storing them durably, processing them real-time or retrospectively, and routing to destinations.
 
 **Events**: Immutable records of "something that happened" containing:
+
 - Key (e.g., "customerId-123")
 - Value (e.g., "Order placed for $250")
 - Timestamp (e.g., "2026-02-11T14:30:00Z")
@@ -60,7 +61,7 @@ cluster.id=MkU3OEVBNTcwNTJENDM2Qk
 ### Docker Compose - Single KRaft Node (Development)
 
 ```yaml
-version: '3.8'
+version: "3.8"
 services:
   kafka:
     image: confluentinc/cp-kafka:7.6.0
@@ -70,20 +71,21 @@ services:
       - "9092:9092"
     environment:
       KAFKA_NODE_ID: 1
-      KAFKA_PROCESS_ROLES: 'broker,controller'
-      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
-      KAFKA_LISTENERS: 'PLAINTEXT://kafka:9092,CONTROLLER://kafka:9093'
-      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9092'
-      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
-      KAFKA_LOG_DIRS: '/tmp/kraft-logs'
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka:9092,CONTROLLER://kafka:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9092"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_LOG_DIRS: "/tmp/kraft-logs"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
 ```
 
 ## Real-World Example
 
 **E-commerce Order Processing Pipeline**:
+
 1. Customer places order → Producer writes event to `orders` topic
 2. Order event contains key: `customerId`, value: order details (JSON)
 3. Multiple consumers process in parallel:
@@ -99,6 +101,7 @@ Performance: Single Kafka cluster handling 1M+ orders/day with <5ms latency.
 ## Migration / Legacy Notes
 
 **ZooKeeper to KRaft Migration**:
+
 - Kafka 3.0-3.3.0: ZooKeeper still default, KRaft early access
 - Kafka 3.3.1+: KRaft production-ready, migration tool available (`zk-migration.sh`)
 - Kafka 4.0+: ZooKeeper fully removed, KRaft only option
@@ -161,6 +164,7 @@ Understanding components is essential for designing Kafka-based systems. Choosin
 **Definition**: Servers in the storage layer that store event streams from producers and serve them to consumers.
 
 **Characteristics**:
+
 - Each broker identified by unique `broker.id`
 - One broker per node/server
 - Every broker is a bootstrap server (connecting to one connects to all)
@@ -173,11 +177,13 @@ Understanding components is essential for designing Kafka-based systems. Choosin
 **Definition**: Nodes that form a Raft quorum managing Kafka's metadata log.
 
 **Roles**:
+
 - **Active Controller**: Elected leader handling all broker RPCs, managing metadata changes
 - **Follower Controllers**: Replicate metadata, serve as hot standbys for failover
 - Metadata includes: topic definitions, partition assignments, ISR (In-Sync Replicas) lists, configurations
 
 **Key Properties**:
+
 - `process.roles=controller` (isolated mode) or `controller,broker` (combined mode)
 - `controller.quorum.voters` defines quorum membership
 - Use Raft consensus for consistent metadata without external systems
@@ -187,6 +193,7 @@ Understanding components is essential for designing Kafka-based systems. Choosin
 **Definition**: Client applications that publish (write) events to Kafka topics.
 
 **Capabilities**:
+
 - Choose target topic for each event
 - Control partition assignment (round-robin, key-based, or custom partitioner)
 - Configure acknowledgment levels (`acks=0,1,all`)
@@ -200,6 +207,7 @@ Understanding components is essential for designing Kafka-based systems. Choosin
 **Definition**: Client applications that subscribe to and read events from Kafka topics.
 
 **Capabilities**:
+
 - Subscribe to one or more topics
 - Track consumption position via offsets (stored in internal `__consumer_offsets` topic)
 - Can replay by resetting offset to earlier position
@@ -213,10 +221,12 @@ Understanding components is essential for designing Kafka-based systems. Choosin
 **Definition**: Data integration framework for streaming data between Kafka and external systems.
 
 **Types**:
+
 - **Source Connectors**: Import data into Kafka (e.g., MySQL CDC, MongoDB, S3)
 - **Sink Connectors**: Export data from Kafka (e.g., Elasticsearch, PostgreSQL, HDFS)
 
 **Benefits**:
+
 - No custom code needed (use pre-built connectors)
 - Distributed, scalable execution
 - Automatic offset management and fault tolerance
@@ -227,6 +237,7 @@ Understanding components is essential for designing Kafka-based systems. Choosin
 **Definition**: Java/Scala client library for building stream processing applications.
 
 **Capabilities**:
+
 - Stateless transformations (filter, map, flatMap)
 - Stateful operations (aggregations, joins, windowing)
 - Event-time processing with out-of-order handling
@@ -293,6 +304,7 @@ max.poll.records=500
 **IoT Sensor Data Pipeline**:
 
 **Components in Action**:
+
 1. **Kafka Connect Source Connector**: Pulls sensor readings from MQTT broker every 100ms → writes to `sensor-readings` topic
 2. **Brokers** (5 nodes): Store `sensor-readings` topic with 30 partitions, replication factor 3, retaining 30 days of data
 3. **Controllers** (3 dedicated nodes): Manage metadata, handle broker failures, coordinate partition reassignments
@@ -305,6 +317,7 @@ max.poll.records=500
 ## Migration / Legacy Notes
 
 **ZooKeeper vs KRaft Controllers**:
+
 - **ZooKeeper Mode**: Separate ZooKeeper ensemble (3-5 nodes) stored metadata; Kafka controllers were brokers elected via ZooKeeper
 - **KRaft Mode**: Controllers are Kafka nodes forming Raft quorum; metadata stored in internal `__cluster_metadata` log topic
 - **Migration**: Use `zookeeper-to-kraft.sh` migration tool (Kafka 3.4+), requires cluster rolling restart
@@ -352,6 +365,7 @@ A: Use Kafka Connect for data integration (getting data in/out of Kafka from ext
 ## Why this matters
 
 Understanding topics, partitions, and offsets is critical for:
+
 - Scaling throughput (more partitions = more parallelism)
 - Guaranteeing message ordering (same-key events in same partition)
 - Consumer progress tracking (offset management)
@@ -370,6 +384,7 @@ Understanding topics, partitions, and offsets is critical for:
 **Definition**: Named categories where events are organized, similar to folders in a filesystem.
 
 **Characteristics**:
+
 - Append-only log structure (new events added to end)
 - Events are immutable after written
 - Multi-producer: multiple producers can write to same topic simultaneously
@@ -384,11 +399,13 @@ Understanding topics, partitions, and offsets is critical for:
 **Definition**: Subdivisions of a topic; each partition is an ordered, immutable sequence of events stored on disk.
 
 **Why Partitions Exist**:
+
 1. **Scalability**: Distributed across multiple brokers, enabling parallel reads/writes
 2. **Throughput**: More partitions = more concurrent producers/consumers
 3. **Fault Tolerance**: Each partition replicated to multiple brokers
 
 **Key Properties**:
+
 - Each partition has an ordered sequence of events (event 0, 1, 2, 3...)
 - Events within a partition maintain strict order
 - No ordering guarantee across different partitions
@@ -396,6 +413,7 @@ Understanding topics, partitions, and offsets is critical for:
 - Each partition has one leader broker and N-1 follower brokers (where N = replication factor)
 
 **Partition Assignment**:
+
 - Round-robin if no key specified
 - Hash of key if key provided: `partition = hash(key) % num_partitions`
 - Custom partitioner logic possible
@@ -405,17 +423,20 @@ Understanding topics, partitions, and offsets is critical for:
 **Definition**: Sequential integer IDs (0, 1, 2, 3...) assigned to each event within a partition.
 
 **Purpose**:
+
 - Uniquely identify each event position within partition
 - Track consumer progress (consumer offset)
 - Enable replay by resetting to earlier offset
 - Stored in special `__consumer_offsets` internal topic
 
 **Offset Semantics**:
+
 - **Current Offset**: Last committed read position
 - **High Water Mark**: Offset of last committed event in partition (available for consumption)
 - **Log End Offset**: Offset of newest event written (may not be committed if replication pending)
 
 **Visual Representation**:
+
 ```
 Partition 0: [Event0:off0] [Event1:off1] [Event2:off2] [Event3:off3] ...
                                                     ↑
@@ -427,12 +448,14 @@ Partition 0: [Event0:off0] [Event1:off1] [Event2:off2] [Event3:off3] ...
 **Definition**: Each partition replicated across multiple brokers for fault tolerance.
 
 **Replication Components**:
+
 - **Leader Replica**: Handles all reads/writes for the partition
 - **Follower Replicas**: Replicate data from leader, serve as backups
 - **In-Sync Replicas (ISR)**: Followers that have caught up with leader
 - **Replication Factor**: Number of copies (typically 3 in production)
 
 **Behavior**:
+
 - Only leader serves client requests
 - If leader fails, one ISR follower promoted to leader automatically
 - `min.insync.replicas` controls durability (how many replicas must acknowledge writes)
@@ -525,12 +548,14 @@ kafka-topics.sh --describe \
 **Ride-Sharing Order Processing**:
 
 **Setup**:
+
 - Topic: `ride-requests`
 - Partitions: 12 (distributed across 4 brokers: 3 partitions per broker)
 - Replication Factor: 3
 - Key: `customerId`
 
 **Workflow**:
+
 1. Customer "Alice" requests ride → Producer writes event with key=`alice-uuid`
 2. Key hashed: `hash(alice-uuid) % 12 = 7` → Event goes to partition 7
 3. All Alice's future ride requests route to partition 7 (order preserved)
@@ -547,11 +572,13 @@ kafka-topics.sh --describe \
 ## Migration / Legacy Notes
 
 **ZooKeeper vs KRaft - Metadata Propagation**:
+
 - **ZooKeeper Mode**: Topic/partition metadata stored in ZooKeeper; brokers poll for updates (slower)
 - **KRaft Mode**: Metadata stored in internal `__cluster_metadata` log; brokers track offsets in metadata log (faster, more efficient)
 - **Benefit**: Faster topic creation, partition reassignment, and controller failover in KRaft
 
 **Partition Increase Consideration**:
+
 - Can increase partition count but CANNOT decrease
 - Increasing changes key → partition mapping for new events (breaks ordering guarantees across all events)
 - Plan partition count upfront based on expected throughput
@@ -598,6 +625,7 @@ A: Partition number identifies which partition (0, 1, 2...). Offset identifies p
 ## Why this matters
 
 Proper producer configuration and key design are critical for:
+
 - **Data Ordering**: Ensuring related events (e.g., user actions) are processed in order
 - **Performance**: Batching and compression can improve throughput 10-100x
 - **Reliability**: Idempotent producers and transactions prevent duplicates
@@ -617,6 +645,7 @@ Proper producer configuration and key design are critical for:
 **Definition**: Client applications that write events to Kafka topics using the Producer API.
 
 **Core Responsibilities**:
+
 1. **Serialize**: Convert key/value objects to byte arrays
 2. **Partition**: Determine target partition for each event
 3. **Batch**: Group events for efficient network transmission
@@ -625,6 +654,7 @@ Proper producer configuration and key design are critical for:
 6. **Acknowledge**: Wait for broker confirmation based on `acks` setting
 
 **Producer Workflow**:
+
 ```
 Application → Producer.send(record)
             → Serializer (key, value)
@@ -640,16 +670,19 @@ Application → Producer.send(record)
 **Definition**: Optional identifier for an event that determines partition assignment and enables ordering.
 
 **Key Characteristics**:
+
 - Can be any serializable object (String, Integer, custom object)
 - Hashed to determine partition: `partition = hash(key) % num_partitions`
 - Same key → same partition → ordering guaranteed for that key
 - Null key → round-robin or sticky partitioning (no ordering guarantee)
 
 **When to Use Keys**:
+
 - **Use Key**: When events are related and order matters (e.g., user actions, device telemetry, account transactions)
 - **Null Key**: When events are independent and load balancing is priority (e.g., log messages, metrics)
 
 **Key Design Patterns**:
+
 1. **Entity ID**: `customerId`, `orderId`, `deviceId`
 2. **Composite Key**: `customerId:sessionId` for hierarchical grouping
 3. **Extracted Field**: `timestamp % 1000` for time-based bucketing
@@ -658,17 +691,20 @@ Application → Producer.send(record)
 ### Partitioning Strategies
 
 **Default Partitioner** (when key is NOT null):
+
 ```java
 partition = hash(keyBytes) % numPartitions
 // Uses murmur2 hash algorithm (consistent across producer instances)
 ```
 
 **Sticky Partitioner** (when key IS null, Kafka 2.4+):
+
 - Fills up batches for single partition before switching
 - Reduces latency and increases throughput vs round-robin
 - Automatically switches to another partition when batch full
 
 **Custom Partitioner**:
+
 ```java
 public class CustomPartitioner implements Partitioner {
     public int partition(String topic, Object key, byte[] keyBytes,
@@ -685,18 +721,21 @@ public class CustomPartitioner implements Partitioner {
 ### Acknowledgment Semantics
 
 **acks=0** (Fire-and-forget):
+
 - Producer doesn't wait for broker acknowledgment
 - Highest throughput, lowest latency
 - Risk: Data loss if broker fails immediately after receive
 - Use case: High-volume metrics where occasional loss acceptable
 
 **acks=1** (Leader acknowledgment):
+
 - Producer waits for leader replica to write to disk
 - Balanced throughput/latency
 - Risk: Data loss if leader fails before followers replicate
 - Use case: Log aggregation, moderate durability needs
 
 **acks=all** (All in-sync replicas):
+
 - Producer waits for leader and all ISR followers to acknowledge
 - Highest durability, lower throughput
 - Risk: Minimal (only if all replicas fail simultaneously)
@@ -705,11 +744,13 @@ public class CustomPartitioner implements Partitioner {
 ### Producer Durability Features
 
 **Idempotent Producer** (`enable.idempotence=true`):
+
 - Guarantees exactly-once per partition even with retries
 - Assigns sequence numbers to detect duplicates broker-side
 - No performance penalty, recommended for all producers
 
 **Transactional Producer**:
+
 - Atomic writes across multiple partitions/topics
 - Either all succeed or all fail
 - Enables exactly-once semantics end-to-end with consumers
@@ -780,19 +821,19 @@ public class OrderProducer {
         props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
         props.put("acks", "all");
         props.put("enable.idempotence", "true");
-        
+
         Producer<String, String> producer = new KafkaProducer<>(props);
-        
+
         String customerId = "customer-12345";
         String orderData = "{\"orderId\":\"abc\",\"amount\":99.99,\"timestamp\":1707667200}";
-        
+
         // Key ensures all orders for customer-12345 go to same partition
         ProducerRecord<String, String> record = new ProducerRecord<>(
             "orders",         // topic
             customerId,       // key (determines partition)
             orderData         // value
         );
-        
+
         // Asynchronous send with callback
         producer.send(record, new Callback() {
             public void onCompletion(RecordMetadata metadata, Exception exception) {
@@ -804,7 +845,7 @@ public class OrderProducer {
                 }
             }
         });
-        
+
         producer.close();
     }
 }
@@ -850,12 +891,12 @@ producer.initTransactions();
 
 try {
     producer.beginTransaction();
-    
+
     // Write multiple records atomically
     producer.send(new ProducerRecord<>("orders", "customer-1", "order-data-1"));
     producer.send(new ProducerRecord<>("inventory", "product-1", "reserve-stock"));
     producer.send(new ProducerRecord<>("notifications", "customer-1", "order-confirmation"));
-    
+
     producer.commitTransaction();
 } catch (Exception e) {
     producer.abortTransaction();
@@ -869,6 +910,7 @@ try {
 **Scenario**: Process stock trades with strict ordering per stock symbol.
 
 **Requirements**:
+
 - Trades for same stock must be processed in order
 - No duplicate trades (exactly-once)
 - High throughput (100K trades/sec)
@@ -909,6 +951,7 @@ producer.send(record, (metadata, exception) -> {
 ```
 
 **Result**:
+
 - All "AAPL" trades → partition 7 (based on `hash("AAPL") % 50 = 7`)
 - All "GOOG" trades → partition 23
 - Consumer assigned partition 7 processes AAPL trades in exact order received
@@ -919,10 +962,12 @@ producer.send(record, (metadata, exception) -> {
 ## Migration / Legacy Notes
 
 **Legacy Round-Robin Partitioner (Kafka <2.4)**:
+
 - Null-key events round-robined across partitions per event
 - Created many small batches, poor throughput
 
 **Modern Sticky Partitioner (Kafka 2.4+)**:
+
 - Null-key events stick to partition until batch full
 - Dramatically improved throughput (20-50% gain)
 - Default in Kafka 3.x+
@@ -971,6 +1016,7 @@ A: Typically 10-30% higher latency with `acks=all` (waits for follower replicati
 ## Why this matters
 
 Consumers are the data readers in Kafka ecosystems. Understanding consumer behavior and deserialization is critical for:
+
 - Building reliable data processing pipelines
 - Handling schema evolution without breaking consumers
 - Optimizing throughput with proper fetch settings
@@ -990,6 +1036,7 @@ Consumers are the data readers in Kafka ecosystems. Understanding consumer behav
 **Definition**: A Kafka consumer is a client application that reads and processes events from brokers by subscribing to one or more topics.
 
 **Pull-Based Architecture**:
+
 - Consumers **pull** data from brokers (not pushed by brokers)
 - Consumers issue fetch requests specifying log offset
 - Broker returns chunk of log starting from requested offset
@@ -999,6 +1046,7 @@ Consumers are the data readers in Kafka ecosystems. Understanding consumer behav
   - Consumers can catch up if they fall behind
 
 **Consumer Workflow**:
+
 ```
 Consumer subscribes to topic(s)
   → Poll for events (fetch from broker)
@@ -1009,6 +1057,7 @@ Consumer subscribes to topic(s)
 ```
 
 **Fetch Behavior**:
+
 - Consumer specifies offset in fetch request
 - Receives batch of events starting from that offset
 - Can only read up to **high water mark** (last committed event replicated to all ISRs)
@@ -1019,28 +1068,31 @@ Consumer subscribes to topic(s)
 **Definition**: Process of converting byte arrays from Kafka into typed objects.
 
 **Deserializer Components**:
+
 - **Key Deserializer**: Converts key bytes → key object
 - **Value Deserializer**: Converts value bytes → value object
 - Must match serializers used by producers
 
 **Common Deserializers**:
 
-| Deserializer | Purpose | Use Case |
-|-------------|---------|----------|
-| `StringDeserializer` | Bytes → String (UTF-8) | Text data, JSON strings |
-| `IntegerDeserializer` | Bytes → Integer | Numeric IDs |
-| `ByteArrayDeserializer` | Bytes → byte[] (no-op) | Raw binary data |
-| `AvroDeserializer` | Bytes → Avro object | Structured data with schema |
-| `JsonDeserializer` | Bytes → JSON object | Flexible JSON documents |
-| `ProtobufDeserializer` | Bytes → Protobuf message | Efficient binary format |
+| Deserializer            | Purpose                  | Use Case                    |
+| ----------------------- | ------------------------ | --------------------------- |
+| `StringDeserializer`    | Bytes → String (UTF-8)   | Text data, JSON strings     |
+| `IntegerDeserializer`   | Bytes → Integer          | Numeric IDs                 |
+| `ByteArrayDeserializer` | Bytes → byte[] (no-op)   | Raw binary data             |
+| `AvroDeserializer`      | Bytes → Avro object      | Structured data with schema |
+| `JsonDeserializer`      | Bytes → JSON object      | Flexible JSON documents     |
+| `ProtobufDeserializer`  | Bytes → Protobuf message | Efficient binary format     |
 
 **Schema Evolution**:
+
 - Forward Compatibility: New producer schema works with old consumer
 - Backward Compatibility: Old producer schema works with new consumer
 - Full Compatibility: Both directions work
 - Use Schema Registry (Confluent) to manage schema versions
 
 **Deserialization Errors**:
+
 - Malformed data → DeserializationException
 - Schema mismatch → parsing errors
 - Handle via error handlers, dead letter queues, or skip/log
@@ -1048,16 +1100,19 @@ Consumer subscribes to topic(s)
 ### Consumer Configuration Key Properties
 
 **Fetch Settings**:
+
 - `fetch.min.bytes`: Minimum data broker should return (default: 1 byte)
 - `fetch.max.wait.ms`: Max time broker waits to fulfill fetch.min.bytes (default: 500ms)
 - `max.partition.fetch.bytes`: Max bytes per partition per fetch (default: 1MB)
 
 **Offset Management**:
+
 - `auto.offset.reset`: What to do if no offset exists (`earliest`, `latest`, `none`)
 - `enable.auto.commit`: Auto-commit offsets periodically (default: true)
 - `auto.commit.interval.ms`: Auto-commit interval (default: 5000ms)
 
 **Performance**:
+
 - `max.poll.records`: Max records returned in single poll() (default: 500)
 - `session.timeout.ms`: Consumer heartbeat timeout (default: 45s Kafka 4.0)
 - `max.poll.interval.ms`: Max time between polls before considered dead (default: 300s)
@@ -1106,15 +1161,15 @@ public class OrderConsumer {
         props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
         props.put("enable.auto.commit", "false");  // Manual commit
         props.put("auto.offset.reset", "earliest");
-        
+
         KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
         consumer.subscribe(Arrays.asList("orders"));
-        
+
         try {
             while (true) {
                 // Poll for events (10 second timeout)
                 ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(10000));
-                
+
                 for (ConsumerRecord<String, String> record : records) {
                     // Deserializers already converted bytes to String
                     System.out.printf(
@@ -1122,11 +1177,11 @@ public class OrderConsumer {
                         record.topic(), record.partition(), record.offset(),
                         record.key(), record.value()
                     );
-                    
+
                     // Process order (deserialize JSON string manually if needed)
                     processOrder(record.value());
                 }
-                
+
                 // Commit offsets after successful processing
                 consumer.commitSync();
             }
@@ -1134,7 +1189,7 @@ public class OrderConsumer {
             consumer.close();
         }
     }
-    
+
     static void processOrder(String orderJson) {
         // Custom JSON parsing and business logic
         System.out.println("Processing: " + orderJson);
@@ -1178,16 +1233,16 @@ try:
         if msg.error():
             print(f"Error: {msg.error()}")
             continue
-        
+
         # Deserialize Avro bytes to Python dictionary
         user_event = avro_deserializer(
             msg.value(),
             SerializationContext(msg.topic(), MessageField.VALUE)
         )
-        
+
         print(f"Received: {user_event}")
         # user_event is now a Python dict: {'userId': 123, 'action': 'login', ...}
-        
+
         consumer.commit(msg)
 except KeyboardInterrupt:
     pass
@@ -1202,13 +1257,13 @@ import org.apache.kafka.common.errors.SerializationException;
 
 while (true) {
     ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(5000));
-    
+
     for (ConsumerRecord<String, String> record : records) {
         try {
             // Custom deserialization (e.g., JSON to POJO)
             Order order = deserializeOrder(record.value());
             processOrder(order);
-            
+
             // Commit this specific record offset
             Map<TopicPartition, OffsetAndMetadata> offsets = new HashMap<>();
             offsets.put(
@@ -1216,15 +1271,15 @@ while (true) {
                 new OffsetAndMetadata(record.offset() + 1)
             );
             consumer.commitSync(offsets);
-            
+
         } catch (DeserializationException e) {
             // Handle deserialization failure
-            System.err.printf("Deserialization failed at offset %d: %s%n", 
+            System.err.printf("Deserialization failed at offset %d: %s%n",
                 record.offset(), e.getMessage());
-            
+
             // Option 1: Send to dead letter queue
             sendToDeadLetterQueue(record);
-            
+
             // Option 2: Skip and continue (commit offset to move past bad message)
             // Option 3: Stop processing and alert
         }
@@ -1239,6 +1294,7 @@ while (true) {
 **Scenario**: Order service produces events with evolving schemas. Consumers must handle both old and new schema versions without breaking.
 
 **Setup**:
+
 - Topic: `ecommerce-orders`
 - Producer: Uses Avro serialization with Schema Registry
 - Consumer: Order fulfillment service
@@ -1262,10 +1318,10 @@ consumer.subscribe(Arrays.asList("ecommerce-orders"));
 
 while (true) {
     ConsumerRecords<String, Order> records = consumer.poll(Duration.ofSeconds(1));
-    
+
     for (ConsumerRecord<String, Order> record : records) {
         Order order = record.value();  // Automatically deserialized by KafkaAvroDeserializer
-        
+
         // Handle schema evolution gracefully
         if (order.getShippingAddress() != null) {
             // V2 schema with shipping address
@@ -1274,16 +1330,17 @@ while (true) {
             // V1 schema without shipping address (backward compatibility)
             shipToDefaultAddress(order);
         }
-        
-        System.out.printf("Processed order %s, amount $%.2f%n", 
+
+        System.out.printf("Processed order %s, amount $%.2f%n",
             order.getOrderId(), order.getAmount());
     }
-    
+
     consumer.commitAsync();  // Async commit for better throughput
 }
 ```
 
 **Result**:
+
 - Consumers handle both V1 and V2 schemas seamlessly
 - No downtime during schema updates
 - Schema Registry validates compatibility on producer registration
@@ -1292,6 +1349,7 @@ while (true) {
 ## Migration / Legacy Notes
 
 **Consumer Rebalance Protocol Changes (Kafka 4.0)**:
+
 - **Classic Protocol** (pre-4.0 default): Client-side group leader performs partition assignment
 - **New Protocol** (Kafka 4.0 GA): Server-side broker coordinator performs assignment
 - Enable new protocol: `group.protocol=consumer` (client must support)
@@ -1299,6 +1357,7 @@ while (true) {
 - Classic protocol still supported for backward compatibility
 
 **Deserialization Best Practices**:
+
 - Always use Schema Registry for production (Avro, Protobuf, JSON Schema)
 - Implement schema evolution rules (forward/backward compatibility)
 - Handle deserialization errors gracefully (don't crash consumer)
@@ -1346,6 +1405,7 @@ A: Avro uses reader schema (consumer) and writer schema (producer). Schema Regis
 ## Why this matters
 
 Consumer groups are fundamental for:
+
 - **Horizontal Scaling**: Add consumers to increase processing throughput
 - **Fault Tolerance**: Another consumer takes over if one fails
 - **Load Balancing**: Automatic partition distribution across consumers
@@ -1365,6 +1425,7 @@ Consumer groups are fundamental for:
 **Definition**: A set of consumers from the same application that work together to consume and process messages from topics, sharing a common `group.id`.
 
 **Key Principles**:
+
 - Each consumer in group has same `group.id`
 - Each partition assigned to exactly one consumer within group at any time
 - If consumers > partitions, some consumers idle
@@ -1372,18 +1433,20 @@ Consumer groups are fundamental for:
 - Multiple groups can consume same topic independently
 
 **Example Topology**:
+
 ```
 Topic: orders (6 partitions)
 Consumer Group: order-processors (3 consumers)
 
 Partition 0,1 → Consumer-A
-Partition 2,3 → Consumer-B  
+Partition 2,3 → Consumer-B
 Partition 4,5 → Consumer-C
 
 (Automatic load balancing)
 ```
 
 **Consumer Group Coordinator**:
+
 - Broker-side component managing group membership
 - Determined by `group.id` hash
 - Assigns partitions to consumers
@@ -1396,6 +1459,7 @@ Partition 4,5 → Consumer-C
 **Definition**: Process of redistributing partition assignments when consumer group membership or topic metadata changes.
 
 **Rebalance Triggers**:
+
 1. Consumer joins group (new instance starts)
 2. Consumer leaves group (graceful shutdown or crash)
 3. Consumer considered dead (missed heartbeats beyond `session.timeout.ms`)
@@ -1405,6 +1469,7 @@ Partition 4,5 → Consumer-C
 **Rebalance Protocols**:
 
 **Classic Protocol** (pre-Kafka 4.0 default):
+
 - One consumer elected as **group leader**
 - Leader collects metadata, performs client-side assignment
 - Submits assignment plan to coordinator
@@ -1413,6 +1478,7 @@ Partition 4,5 → Consumer-C
 - **Cooperative Rebalance**: Only affected partitions reassigned (lower disruption)
 
 **New Consumer Rebalance Protocol** (Kafka 4.0 GA):
+
 - No group leader election needed
 - Broker coordinator performs server-side assignment
 - Incremental reassignment with minimal disruption
@@ -1420,6 +1486,7 @@ Partition 4,5 → Consumer-C
 - Reduces rebalance time and pauses
 
 **Rebalance Impact**:
+
 - Classic eager: ~seconds downtime for entire group
 - Classic cooperative: ~1s for affected consumers
 - New protocol: <100ms incremental, unaffected consumers continue
@@ -1429,11 +1496,13 @@ Partition 4,5 → Consumer-C
 **Definition**: Integer marking the **next** record that should be read by a consumer in a partition. Stored in `__consumer_offsets` internal topic.
 
 **Offset Semantics**:
+
 - **Current Position**: Offset consumer will read next
 - **Last Committed Offset**: Offset consumer has marked as successfully processed (stored in `__consumer_offsets`)
 - **Uncommitted Range**: Gap between current position and last committed offset
 
 **Visual Representation**:
+
 ```
 Partition 0:
 [0][1][2][3][4][5][6][7][8][9][10][11][12][13][14]...
@@ -1464,6 +1533,7 @@ If consumer crashes, restart from committed offset 1 → reprocess 1-5
    - Useful for batch processing
 
 **Offset Storage**:
+
 - `__consumer_offsets` is compacted topic (50 partitions by default)
 - Key: `(group.id, topic, partition)`
 - Value: `(offset, metadata, timestamp)`
@@ -1472,19 +1542,23 @@ If consumer crashes, restart from committed offset 1 → reprocess 1-5
 ### Partition Assignment Strategies
 
 **Range Assignor** (default for classic protocol):
+
 - Assigns consecutive partitions per topic
 - Example: Topic has 6 partitions, 2 consumers → C1 gets 0-2, C2 gets 3-5
 - Can cause imbalance with multiple topics
 
 **Round-Robin Assignor**:
+
 - Distributes partitions cyclically across consumers
 - Better balance across topics
 
 **Sticky Assignor**:
+
 - Minimizes partition movement during rebalance
 - Consumers keep existing assignments where possible
 
 **Cooperative Sticky Assignor** (recommended):
+
 - Sticky + cooperative rebalancing
 - Least disruption during rebalances
 
@@ -1531,19 +1605,19 @@ public class OrderProcessor {
         props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
         props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
         props.put("enable.auto.commit", "false");  // Manual commit
-        
+
         KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
         consumer.subscribe(Arrays.asList("orders"));
-        
+
         try {
             while (true) {
                 ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(1000));
-                
+
                 // Process all records in batch
                 for (ConsumerRecord<String, String> record : records) {
                     processOrder(record);
                 }
-                
+
                 // Commit after successful batch processing
                 try {
                     consumer.commitSync();  // Blocks until commit succeeds
@@ -1556,7 +1630,7 @@ public class OrderProcessor {
             consumer.close();
         }
     }
-    
+
     static void processOrder(ConsumerRecord<String, String> record) {
         System.out.printf("Processing: partition=%d, offset=%d, key=%s%n",
             record.partition(), record.offset(), record.key());
@@ -1571,7 +1645,7 @@ public class OrderProcessor {
 consumer.commitAsync(new OffsetCommitCallback() {
     public void onComplete(Map<TopicPartition, OffsetAndMetadata> offsets, Exception exception) {
         if (exception != null) {
-            System.err.printf("Commit failed for offsets %s: %s%n", 
+            System.err.printf("Commit failed for offsets %s: %s%n",
                 offsets, exception.getMessage());
             // Consider retry or alert
         } else {
@@ -1637,6 +1711,7 @@ consumer2 = KafkaConsumer(
 **Scenario**: Payment service must process 10,000 transactions/sec from `payment-events` topic (30 partitions).
 
 **Initial Setup** (Insufficient Capacity):
+
 ```
 Consumer Group: payment-processors
 Consumers: 3 instances
@@ -1650,6 +1725,7 @@ Result: Each consumer overloaded, 30% lag building up
 ```
 
 **Scale Up** (Add Consumers):
+
 ```
 Consumer Group: payment-processors
 Consumers: 6 instances (scale from 3 to 6)
@@ -1671,11 +1747,13 @@ Result: Load distributed evenly, lag cleared within 5 minutes
 ```
 
 **Offset Management**:
+
 - Manual commit after successful payment processing
 - If Consumer-3 crashes at offset 15000, Consumer-4 takes over from last committed offset 14995
 - Potential duplicates 14995-15000 handled via idempotency (payment ID deduplication)
 
 **Multiple Groups**:
+
 - **Group 1**: `payment-processors` (processes payments)
 - **Group 2**: `fraud-detection` (analyzes same events independently)
 - **Group 3**: `audit-logger` (archives to data warehouse)
@@ -1684,12 +1762,14 @@ Result: Load distributed evenly, lag cleared within 5 minutes
 ## Migration / Legacy Notes
 
 **Consumer Rebalance Protocol Evolution**:
+
 - **Kafka 0.9-2.3**: Only eager rebalancing (all consumers stop)
 - **Kafka 2.4+**: Cooperative rebalancing available (incremental)
 - **Kafka 4.0**: New server-side rebalance protocol GA (opt-in via `group.protocol=consumer`)
 - Classic protocol remains default for backward compatibility
 
 **Offset Storage Migration**:
+
 - **Pre-0.9**: Offsets stored in ZooKeeper
 - **0.9+**: Offsets stored in `__consumer_offsets` Kafka topic
 - **Migration**: Automatic, no action needed
@@ -1738,6 +1818,7 @@ A: Yes, use `consumer.assign(List<TopicPartition>)` instead of `consumer.subscri
 ## Why this matters
 
 Understanding broker-topic relationship is essential for:
+
 - **Capacity Planning**: How many brokers needed for storage/throughput requirements
 - **Data Distribution**: How topics are spread across cluster for load balancing
 - **Fault Tolerance**: How partition replicas protect against broker failures
@@ -1757,6 +1838,7 @@ Understanding broker-topic relationship is essential for:
 **Definition**: Servers in Kafka cluster that form the storage layer, storing event streams and serving client produce/consume requests.
 
 **Broker Responsibilities**:
+
 1. **Storage**: Persist partition replicas to disk (`log.dirs`)
 2. **Serving**: Handle produce requests (writes) and fetch requests (reads)
 3. **Replication**: Replicate data between leader and follower replicas
@@ -1764,11 +1846,13 @@ Understanding broker-topic relationship is essential for:
 5. **Leadership**: Act as leader for subset of partitions
 
 **Broker Identification**:
+
 - Each broker has unique `broker.id` (or `node.id` in KRaft)
 - Every broker is a "bootstrap server" (connect to one, discover all)
 - Clients receive cluster metadata from any broker
 
 **Broker Storage Architecture**:
+
 ```
 Broker Disk Layout:
 /data/kafka-logs/
@@ -1784,12 +1868,14 @@ Each partition = directory with log segments
 ```
 
 **Broker Capacity Factors**:
+
 - **Disk I/O**: Sequential writes/reads (Kafka optimized for disk)
 - **Network**: Replication and client traffic
 - **CPU**: Compression/decompression (if enabled)
 - **Memory**: Page cache for performance (OS manages)
 
 **Typical Production Cluster**:
+
 - Minimum: 3 brokers (for replication factor 3)
 - Moderate: 5-10 brokers
 - Large: 50-100+ brokers
@@ -1800,6 +1886,7 @@ Each partition = directory with log segments
 **Definition**: Named categories that organize events, logically independent but physically distributed across broker partitions.
 
 **Topic Characteristics**:
+
 - Append-only log (immutable events)
 - Multi-producer, multi-subscriber
 - Retention by time or size
@@ -1807,18 +1894,19 @@ Each partition = directory with log segments
 
 **Topic Configuration** (Key Properties):
 
-| Property | Description | Default | Example |
-|----------|-------------|---------|---------|
-| `num.partitions` | Number of partitions | 1 | 6 |
-| `replication.factor` | Copies of each partition | 1 | 3 |
-| `retention.ms` | Time retention | 7 days | 604800000 |
-| `retention.bytes` | Size retention per partition | Unlimited | 1GB |
-| `min.insync.replicas` | Min ISRs for acks=all | 1 | 2 |
-| `compression.type` | Compression algorithm | producer | snappy |
-| `cleanup.policy` | delete or compact | delete | delete |
-| `segment.ms` | Segment roll time | 7 days | 604800000 |
+| Property              | Description                  | Default   | Example   |
+| --------------------- | ---------------------------- | --------- | --------- |
+| `num.partitions`      | Number of partitions         | 1         | 6         |
+| `replication.factor`  | Copies of each partition     | 1         | 3         |
+| `retention.ms`        | Time retention               | 7 days    | 604800000 |
+| `retention.bytes`     | Size retention per partition | Unlimited | 1GB       |
+| `min.insync.replicas` | Min ISRs for acks=all        | 1         | 2         |
+| `compression.type`    | Compression algorithm        | producer  | snappy    |
+| `cleanup.policy`      | delete or compact            | delete    | delete    |
+| `segment.ms`          | Segment roll time            | 7 days    | 604800000 |
 
 **Topic Naming Conventions**:
+
 - Use descriptive names: `user-registrations`, `payment-events`, `order-updates`
 - Avoid special characters (stick to alphanumeric, dash, underscore, dot)
 - Consider namespacing: `prod.orders.created`, `staging.orders.created`
@@ -1826,11 +1914,13 @@ Each partition = directory with log segments
 ### Broker-Topic Relationship
 
 **Partition Distribution**:
+
 - When topic created, partitions distributed across brokers
 - Kafka attempts even distribution (round-robin)
 - Example: 6 partitions, 3 brokers → 2 partitions per broker
 
 **Visual Representation**:
+
 ```
 Topic: user-events (6 partitions, replication factor 3)
 
@@ -1853,12 +1943,14 @@ Each partition has 1 leader + 2 followers across different brokers
 ```
 
 **Partition Leader**:
+
 - One broker elected leader for each partition
 - All reads/writes go through leader
 - Leader coordinates replication to followers
 - Leadership distributed across brokers for load balancing
 
 **Broker Failure Impact**:
+
 - If Broker-1 fails, partitions 0 (leader), 1 (follower), 2 (follower) affected
 - Followers on Broker-2/3 promoted to leaders for partition 0
 - Cluster continues operating with reduced redundancy
@@ -1867,6 +1959,7 @@ Each partition has 1 leader + 2 followers across different brokers
 ### Topic Management Operations
 
 **Create Topic**:
+
 ```bash
 kafka-topics.sh --create \
   --bootstrap-server localhost:9092 \
@@ -1878,11 +1971,13 @@ kafka-topics.sh --create \
 ```
 
 **List Topics**:
+
 ```bash
 kafka-topics.sh --list --bootstrap-server localhost:9092
 ```
 
 **Describe Topic** (shows partition-broker mapping):
+
 ```bash
 kafka-topics.sh --describe --bootstrap-server localhost:9092 --topic orders
 
@@ -1895,6 +1990,7 @@ kafka-topics.sh --describe --bootstrap-server localhost:9092 --topic orders
 ```
 
 **Alter Topic** (increase partitions):
+
 ```bash
 kafka-topics.sh --alter \
   --bootstrap-server localhost:9092 \
@@ -1903,6 +1999,7 @@ kafka-topics.sh --alter \
 ```
 
 **Delete Topic**:
+
 ```bash
 kafka-topics.sh --delete \
   --bootstrap-server localhost:9092 \
@@ -1928,7 +2025,7 @@ num.recovery.threads.per.data.dir=1    # Threads for log recovery
 # Topic defaults (if not specified at topic creation)
 num.partitions=3                       # Default partitions for new topics
 default.replication.factor=3           # Default replication factor
-min.insync.replicas=2                  # Minimum ISRs for durability
+min.insync.replicas=2                  # Minimum ISRs must be in sync for durability (works with acks config, specially acks  = all)
 auto.create.topics.enable=false        # Disable auto topic creation (recommend)
 
 # Retention
@@ -1973,7 +2070,7 @@ kafka-topics.sh --create \
 ### Docker Compose - Multi-Broker Cluster (KRaft)
 
 ```yaml
-version: '3.8'
+version: "3.8"
 services:
   kafka-1:
     image: confluentinc/cp-kafka:7.6.0
@@ -1982,16 +2079,16 @@ services:
       - "9092:9092"
     environment:
       KAFKA_NODE_ID: 1
-      KAFKA_PROCESS_ROLES: 'broker,controller'
-      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093'
-      KAFKA_LISTENERS: 'PLAINTEXT://kafka-1:9092,CONTROLLER://kafka-1:9093'
-      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9092'
-      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
-      KAFKA_LOG_DIRS: '/tmp/kraft-logs-1'
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-1:9092,CONTROLLER://kafka-1:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9092"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_LOG_DIRS: "/tmp/kraft-logs-1"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_NUM_PARTITIONS: 6
       KAFKA_DEFAULT_REPLICATION_FACTOR: 3
-      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
 
   kafka-2:
     image: confluentinc/cp-kafka:7.6.0
@@ -2000,14 +2097,14 @@ services:
       - "9093:9092"
     environment:
       KAFKA_NODE_ID: 2
-      KAFKA_PROCESS_ROLES: 'broker,controller'
-      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093'
-      KAFKA_LISTENERS: 'PLAINTEXT://kafka-2:9092,CONTROLLER://kafka-2:9093'
-      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9093'
-      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
-      KAFKA_LOG_DIRS: '/tmp/kraft-logs-2'
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
-      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-2:9092,CONTROLLER://kafka-2:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9093"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_LOG_DIRS: "/tmp/kraft-logs-2"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
 
   kafka-3:
     image: confluentinc/cp-kafka:7.6.0
@@ -2016,14 +2113,14 @@ services:
       - "9094:9092"
     environment:
       KAFKA_NODE_ID: 3
-      KAFKA_PROCESS_ROLES: 'broker,controller'
-      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093'
-      KAFKA_LISTENERS: 'PLAINTEXT://kafka-3:9092,CONTROLLER://kafka-3:9093'
-      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9094'
-      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
-      KAFKA_LOG_DIRS: '/tmp/kraft-logs-3'
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
-      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-3:9092,CONTROLLER://kafka-3:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9094"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_LOG_DIRS: "/tmp/kraft-logs-3"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
 ```
 
 ## Real-World Example
@@ -2031,12 +2128,14 @@ services:
 **E-commerce Platform - Multi-Broker Cluster**:
 
 **Requirements**:
+
 - 3 applications producing events: order-service, inventory-service, notification-service
 - 100K events/sec throughput
 - 30-day retention
 - High availability (tolerate 1 broker failure)
 
 **Cluster Design**:
+
 ```
 Brokers: 5 nodes (AWS m5.xlarge: 4 vCPU, 16GB RAM, 500GB SSD each)
 Total Capacity: 2.5TB storage, 20 vCPU, 80GB RAM
@@ -2052,6 +2151,7 @@ Per Broker: 225 ÷ 5 = 45 partition replicas each
 ```
 
 **Partition Distribution** (orders topic):
+
 ```
 Broker-1: orders-0(L), orders-5(F), orders-10(F)
 Broker-2: orders-1(L), orders-6(F), orders-11(F)
@@ -2064,6 +2164,7 @@ Leadership evenly distributed
 ```
 
 **Failure Scenario**:
+
 - Broker-3 fails (hardware issue)
 - Impact: Partitions 2, 7, 12 lose leader
 - Recovery: Followers on Broker-1/2/4/5 promoted to leaders within seconds
@@ -2071,6 +2172,7 @@ Leadership evenly distributed
 - When Broker-3 restored, resyncs and resumes as follower
 
 **Monitoring**:
+
 ```bash
 # Check broker disk usage
 df -h /data/kafka-logs
@@ -2088,12 +2190,14 @@ kafka-topics.sh --describe --bootstrap-server localhost:9092 --under-replicated-
 ## Migration / Legacy Notes
 
 **ZooKeeper vs KRaft Broker Management**:
+
 - **ZooKeeper Mode**: Broker IDs registered in ZooKeeper, controller elected via ZooKeeper
 - **KRaft Mode**: Brokers register with controller quorum, controller elected via Raft
 - **Migration**: Use `zookeeper-to-kraft.sh` (Kafka 3.4+)
 - **Benefit**: Simpler operations, faster metadata updates, higher partition limits
 
 **Topic Auto-Creation**:
+
 - Older versions: `auto.create.topics.enable=true` by default
 - Best practice: Set to `false` in production (prevent accidental topic creation from typos)
 - Explicitly create topics with desired partitions/replication
@@ -2140,6 +2244,7 @@ A: Depends on use case. Large topic with many partitions good for high throughpu
 ## Why this matters
 
 Replication is critical for:
+
 - **High Availability**: Cluster continues operating when brokers fail
 - **Durability**: Messages not lost even with hardware failures
 - **Zero Downtime**: Automatic failover to new leaders within seconds
@@ -2159,12 +2264,14 @@ Replication is critical for:
 **Definition**: Process of maintaining multiple copies (replicas) of each partition across different brokers.
 
 **Replication Factor (RF)**:
+
 - Number of total replicas (leader + followers)
 - Configured per topic at creation
 - Cannot be changed after creation (workaround: create new topic, migrate)
 - Production standard: **RF=3** (tolerates 2 broker failures)
 
 **Formula**:
+
 ```
 Fault Tolerance = Replication Factor - 1
 
@@ -2175,6 +2282,7 @@ RF=5: Tolerates 4 failures (rare, high overhead)
 ```
 
 **Storage Cost**:
+
 - RF=3 means 3× storage required
 - Example: 1TB topic with RF=3 = 3TB total storage across cluster
 
@@ -2183,6 +2291,7 @@ RF=5: Tolerates 4 failures (rare, high overhead)
 **Definition**: One broker elected as leader for each partition, handling all client read/write operations.
 
 **Leader Responsibilities**:
+
 1. **Accept Writes**: Receive produce requests from producers
 2. **Serve Reads**: Respond to fetch requests from consumers
 3. **Coordinate Replication**: Send data to follower replicas
@@ -2190,11 +2299,13 @@ RF=5: Tolerates 4 failures (rare, high overhead)
 5. **Report to Controller**: Notify about ISR changes
 
 **Leader Distribution**:
+
 - Kafka distributes leadership evenly across brokers
 - Avoids hot spots (one broker handling all traffic)
 - Each broker is leader for subset of partitions
 
 **Example**:
+
 ```
 Topic: payments (9 partitions, RF=3)
 Cluster: 3 brokers
@@ -2212,12 +2323,14 @@ Balanced: Each broker handles 33% of read/write traffic
 **Definition**: Non-leader replicas that replicate data from the leader by fetching new messages.
 
 **Follower Behavior**:
+
 - Act like Kafka consumers: fetch messages from leader
 - Apply messages to their own log in same order
 - Send fetch requests continuously (like heartbeats)
 - Do NOT serve client read/write requests (all go to leader)
 
 **Replication Protocol**:
+
 ```
 1. Producer writes message to leader
 2. Leader appends to its log
@@ -2229,6 +2342,7 @@ Balanced: Each broker handles 33% of read/write traffic
 ```
 
 **Why Followers Don't Serve Reads**:
+
 - Simplifies consistency (no stale reads)
 - Easier to guarantee ordering
 - All clients get same view of data
@@ -2239,11 +2353,13 @@ Balanced: Each broker handles 33% of read/write traffic
 **Definition**: Set of replicas (leader + followers) that are "caught up" with the leader, eligible for leader election.
 
 **ISR Criteria**:
+
 - Follower must fetch within `replica.lag.time.max.ms` (default: 30s in Kafka 3.x/4.x)
 - Previously based on message count lag, now time-based
 - If follower falls behind, leader removes it from ISR
 
 **ISR States**:
+
 ```
 Healthy: ISR = [Broker-1(L), Broker-2(F), Broker-3(F)]  (all in sync)
 
@@ -2253,11 +2369,13 @@ Leader Failed: ISR = [Broker-2(new-L), Broker-3(F)]  (Broker-2 promoted to leade
 ```
 
 **ISR Importance**:
+
 - Only ISRs can become leader (ensures no data loss)
 - `min.insync.replicas` setting requires minimum ISRs for writes
 - Low ISR count = risk (less redundancy)
 
 **Committed Messages**:
+
 - Message "committed" when replicated to **all ISRs**
 - Consumers only read committed messages (up to "high water mark")
 - Guarantees: committed message not lost as long as 1 ISR alive
@@ -2267,6 +2385,7 @@ Leader Failed: ISR = [Broker-2(new-L), Broker-3(F)]  (Broker-2 promoted to leade
 **Definition**: Process of promoting a follower to leader when current leader fails.
 
 **Election Process** (KRaft Mode):
+
 1. Controller detects leader failure (missed heartbeats)
 2. Controller selects new leader from ISR list
 3. Preference: replica with most up-to-date log (highest offset)
@@ -2275,10 +2394,12 @@ Leader Failed: ISR = [Broker-2(new-L), Broker-3(F)]  (Broker-2 promoted to leade
 6. Failed broker rejoins as follower when recovered
 
 **Election Time**:
+
 - Typically seconds (2-5s in Kafka 3.x/4.x)
 - KRaft mode faster than ZooKeeper mode (near-instantaneous metadata updates)
 
 **Unclean Leader Election**:
+
 - If all ISRs offline, two options:
   1. **Wait for ISR** (default): Remain offline until ISR recovers (prioritize consistency)
   2. **Elect non-ISR** (`unclean.leader.election.enable=true`): Elect first available replica (prioritize availability, risk data loss)
@@ -2287,21 +2408,25 @@ Leader Failed: ISR = [Broker-2(new-L), Broker-3(F)]  (Broker-2 promoted to leade
 ### Producer Acknowledgments (acks) and Replication
 
 **acks=0** (No acknowledgment):
+
 - Producer fire-and-forget
 - No replication guarantee
 - Highest throughput, risk data loss
 
 **acks=1** (Leader acknowledgment):
+
 - Leader writes to its log, acks immediately
 - No guarantee followers replicated
 - Balanced throughput/durability
 
 **acks=all** (All ISRs acknowledgment):
+
 - Leader waits for all ISRs to acknowledge
 - Combined with `min.insync.replicas=2` ensures durability
 - Highest durability, slightly lower throughput
 
 **Recommended Production**:
+
 ```properties
 # Producer
 acks=all
@@ -2404,11 +2529,13 @@ kafka-leader-election.sh --bootstrap-server localhost:9092 \
 **Financial Trading Platform - High Durability**:
 
 **Requirements**:
+
 - Zero data loss (regulatory compliance)
 - Survive 2 simultaneous broker failures
 - High availability (sub-second failover)
 
 **Configuration**:
+
 ```
 Cluster: 5 brokers
 Topic: trade-executions
@@ -2425,6 +2552,7 @@ Storage: 5 brokers × 2TB = 10TB raw, 2TB usable (5× replication overhead)
 ```
 
 **Partition 0 Replication**:
+
 ```
 Leader: Broker-1    (active writes/reads)
 ISR: [Broker-1, Broker-2, Broker-3, Broker-4, Broker-5]
@@ -2440,6 +2568,7 @@ Producer writes trade:
 ```
 
 **Failure Scenario 1** (Leader Failure):
+
 ```
 Time 0: Broker-1 fails (hardware crash)
 Time 1s: Controller detects via missed heartbeats
@@ -2451,6 +2580,7 @@ Result: ~3s downtime for partition 0, zero data loss
 ```
 
 **Failure Scenario 2** (Multiple Broker Failures):
+
 ```
 Time 0: Broker-1 and Broker-2 fail simultaneously
 ISR: [Broker-3, Broker-4, Broker-5]  (3 replicas remain)
@@ -2464,6 +2594,7 @@ When Broker-1, 2 recover: Rejoin as followers, resync from Broker-3
 ```
 
 **Monitoring**:
+
 - Alert on `UnderReplicatedPartitions > 0` (ISR < Replicas)
 - Alert on `OfflinePartitionsCount > 0` (no leader available)
 - Monitor replication lag (should be <1s)
@@ -2471,6 +2602,7 @@ When Broker-1, 2 recover: Rejoin as followers, resync from Broker-3
 ## Migration / Legacy Notes
 
 **ZooKeeper vs KRaft Replication**:
+
 - Replication mechanics identical in both modes
 - Difference: Controller election and metadata propagation
 - **ZooKeeper**: Controller election via ZooKeeper, milliseconds to seconds
@@ -2478,6 +2610,7 @@ When Broker-1, 2 recover: Rejoin as followers, resync from Broker-3
 - **Benefit**: Faster leader election and partition failover in KRaft
 
 **Historical Changes**:
+
 - Pre-0.9: `replica.lag.max.messages` (message count lag) → removed
 - 0.9+: `replica.lag.time.max.ms` (time-based) → current standard
 - Kafka 2.4+: Follower fetching for read replicas (geo-replication) → advanced feature
@@ -2524,6 +2657,7 @@ A: ISR < Replicas, usually due to: slow follower (network issues, disk I/O bottl
 ## Why this matters
 
 Understanding acknowledgment and durability is critical for:
+
 - **Data Integrity**: Preventing message loss in production systems
 - **Performance Tuning**: Balancing durability vs latency tradeoffs
 - **Compliance**: Meeting regulatory requirements for financial, healthcare, and critical systems
@@ -2541,6 +2675,7 @@ Understanding acknowledgment and durability is critical for:
 ### Producer Acknowledgment Levels (acks)
 
 **acks=0** (Fire-and-Forget):
+
 - **Behavior**: Producer doesn't wait for any broker acknowledgment
 - **Latency**: Lowest (~sub-millisecond)
 - **Throughput**: Highest
@@ -2548,6 +2683,7 @@ Understanding acknowledgment and durability is critical for:
 - **Use Case**: High-volume metrics, logs where occasional loss acceptable
 
 **acks=1** (Leader Acknowledgment):
+
 - **Behavior**: Producer waits for leader to write to its log
 - **Latency**: Moderate (~1-5ms)
 - **Throughput**: Balanced
@@ -2555,6 +2691,7 @@ Understanding acknowledgment and durability is critical for:
 - **Use Case**: Application logs, moderate importance data
 
 **acks=all** (All In-Sync Replicas):
+
 - **Behavior**: Producer waits for leader + all ISRs to acknowledge
 - **Latency**: Highest (~5-20ms depending on cluster)
 - **Throughput**: Lower (but still high with tuning)
@@ -2614,11 +2751,13 @@ Producer: acks=all (All ISRs)
 ### Topic Durability Configuration
 
 **min.insync.replicas**:
+
 - Minimum number of ISRs that must acknowledge write for `acks=all`
 - Topic-level configuration (overrides broker default)
 - Common: `min.insync.replicas=2` with `replication.factor=3`
 
 **Durability Formula**:
+
 ```
 Strong Durability = acks=all + min.insync.replicas ≥ 2 + replication.factor ≥ 3
 
@@ -2633,6 +2772,7 @@ Result: Tolerates 1 broker failure without data loss
 ### Delivery Semantics
 
 **At-Most-Once** (may lose messages):
+
 ```
 Configuration:
 - acks=0 or acks=1
@@ -2644,6 +2784,7 @@ Risk: Data loss
 ```
 
 **At-Least-Once** (may duplicate messages):
+
 ```
 Configuration:
 - acks=all
@@ -2655,6 +2796,7 @@ Risk: Duplicate processing (handle with deduplication)
 ```
 
 **Exactly-Once** (no loss, no duplicates):
+
 ```
 Configuration:
 - acks=all
@@ -2671,12 +2813,14 @@ Cost: Higher latency, more complexity
 **Definition**: Producers that guarantee exactly-once delivery per partition even with retries.
 
 **Mechanism**:
+
 - Broker assigns each producer a unique Producer ID (PID)
 - Producer attaches sequence number to each message
 - Broker deduplicates based on PID + sequence number
 - Automatic, no application code changes needed
 
 **Configuration**:
+
 ```properties
 enable.idempotence=true   # Enable idempotent producer
 acks=all                  # Required for idempotence
@@ -2685,6 +2829,7 @@ max.in.flight.requests.per.connection=5  # Max concurrent requests
 ```
 
 **Visual Flow**:
+
 ```
 Producer (PID=1234, Seq=0,1,2...)
      │
@@ -2700,11 +2845,13 @@ Producer (PID=1234, Seq=0,1,2...)
 **Definition**: Enables atomic writes across multiple partitions/topics with exactly-once semantics.
 
 **Use Cases**:
+
 - Kafka Streams processing (read from topic A, write to topic B atomically)
 - Multi-partition writes that must all succeed or all fail
 - Consumer-Producer pipelines requiring exactly-once end-to-end
 
 **Configuration**:
+
 ```properties
 transactional.id=my-app-txn-1   # Unique per producer instance
 enable.idempotence=true         # Required for transactions
@@ -2712,6 +2859,7 @@ acks=all                        # Required
 ```
 
 **Transaction Flow**:
+
 ```
 Producer API:
   producer.initTransactions()
@@ -2730,6 +2878,7 @@ Consumer API (consuming transactional data):
 ### Maximum Durability Configuration
 
 **Topic Configuration**:
+
 ```bash
 kafka-topics.sh --create \
   --bootstrap-server localhost:9092 \
@@ -2741,6 +2890,7 @@ kafka-topics.sh --create \
 ```
 
 **Producer Configuration (Java)**:
+
 ```properties
 # Maximum durability
 bootstrap.servers=kafka1:9092,kafka2:9092,kafka3:9092
@@ -2763,6 +2913,7 @@ value.serializer=org.apache.kafka.common.serialization.StringSerializer
 ### High Throughput Configuration
 
 **Producer Configuration**:
+
 ```properties
 # Optimized for throughput (acceptable durability)
 bootstrap.servers=kafka1:9092,kafka2:9092
@@ -2786,20 +2937,20 @@ public class IdempotentProducer {
         props.put("bootstrap.servers", "localhost:9092");
         props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
         props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
-        
+
         // Idempotent producer (exactly-once per partition)
         props.put("enable.idempotence", "true");
         props.put("acks", "all");
         props.put("retries", Integer.MAX_VALUE);
         props.put("max.in.flight.requests.per.connection", "5");
-        
+
         Producer<String, String> producer = new KafkaProducer<>(props);
-        
+
         try {
             for (int i = 0; i < 100; i++) {
-                ProducerRecord<String, String> record = 
+                ProducerRecord<String, String> record =
                     new ProducerRecord<>("orders", "order-" + i, "order-data-" + i);
-                
+
                 producer.send(record, (metadata, exception) -> {
                     if (exception == null) {
                         System.out.printf("Sent: partition=%d, offset=%d%n",
@@ -2828,30 +2979,30 @@ public class TransactionalProducer {
         props.put("bootstrap.servers", "localhost:9092");
         props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
         props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
-        
+
         // Transactional configuration
         props.put("transactional.id", "my-transactional-producer-1");
         props.put("enable.idempotence", "true");
         props.put("acks", "all");
-        
+
         Producer<String, String> producer = new KafkaProducer<>(props);
-        
+
         // Initialize transactions
         producer.initTransactions();
-        
+
         try {
             // Begin transaction
             producer.beginTransaction();
-            
+
             // Send multiple records atomically
             producer.send(new ProducerRecord<>("orders", "order-1", "data-1"));
             producer.send(new ProducerRecord<>("inventory", "product-1", "stock-update"));
             producer.send(new ProducerRecord<>("notifications", "user-1", "order-confirmation"));
-            
+
             // Commit transaction (all succeed or all fail)
             producer.commitTransaction();
             System.out.println("Transaction committed successfully");
-            
+
         } catch (Exception e) {
             // Abort transaction on error
             producer.abortTransaction();
@@ -2892,6 +3043,7 @@ while (true) {
 **Banking Payment Processing System**:
 
 **Requirements**:
+
 - Zero data loss (regulatory compliance)
 - Exactly-once processing (no duplicate payments)
 - Audit trail (all transactions recorded)
@@ -2900,6 +3052,7 @@ while (true) {
 **Configuration**:
 
 **Topic: payment-transactions**
+
 ```properties
 partitions=20
 replication.factor=3
@@ -2909,6 +3062,7 @@ retention.ms=2592000000  # 30 days
 ```
 
 **Producer: Payment Service**
+
 ```properties
 acks=all
 enable.idempotence=true
@@ -2919,6 +3073,7 @@ compression.type=lz4
 ```
 
 **Flow**:
+
 ```
 1. Payment Service receives payment request
 2. Begin Kafka transaction
@@ -2932,6 +3087,7 @@ compression.type=lz4
 ```
 
 **Durability Guarantee Flow**:
+
 ```
 Producer (acks=all, idempotent)
     │
@@ -2952,6 +3108,7 @@ Result: Payment committed, 1 broker can fail, data safe
 ```
 
 **Metrics**:
+
 - Throughput: 5,000 payments/sec
 - Latency p99: 15ms (with acks=all)
 - Data Loss: 0 (over 2 years)
@@ -2960,14 +3117,17 @@ Result: Payment committed, 1 broker can fail, data safe
 ## Migration / Legacy Notes
 
 **Pre-0.11 (No Idempotence)**:
+
 - Manual deduplication required (track message IDs in database)
 - Risk of duplicates on retries
 
 **0.11+ (Idempotence Available)**:
+
 - `enable.idempotence=true` prevents duplicates automatically
 - No application code changes needed
 
 **Transactional Producer Evolution**:
+
 - 0.11.0: Introduced (experimental)
 - 1.0+: Stable for Kafka Streams
 - 2.5+: General production ready
@@ -3017,6 +3177,7 @@ A: Not always. Idempotent producer gives exactly-once per partition. Transaction
 ## Why this matters
 
 KRaft transformation is critical for:
+
 - **Operational Simplicity**: One system instead of two (no separate ZooKeeper cluster)
 - **Scalability**: Supports massive partition counts (millions vs thousands)
 - **Performance**: Near-instantaneous controller failover (<100ms vs seconds)
@@ -3038,6 +3199,7 @@ KRaft transformation is critical for:
 **Core Principle**: Controllers form a Raft quorum managing cluster metadata (topics, partitions, ISRs, configs) in a replicated log.
 
 **Key Components**:
+
 1. **Controller Quorum**: 3-5 dedicated controller nodes using Raft consensus
 2. **Metadata Log** (`__cluster_metadata`): Replicated log storing all metadata changes
 3. **Active Controller**: Raft leader handling all metadata RPCs
@@ -3091,22 +3253,26 @@ Controllers (Raft Quorum):
 **Definition**: Group of controllers forming a Raft quorum for metadata management.
 
 **Quorum Requirements**:
+
 - Majority required for operation: `(N/2) + 1`
 - 3 controllers: Survive 1 failure (need 2/3)
 - 5 controllers: Survive 2 failures (need 3/5)
 - Production: **3 or 5 controllers recommended**
 
 **Active Controller** (Raft Leader):
+
 - Handles all broker RPCs (topic creation, partition updates, etc.)
 - Writes metadata changes to log
 - Replicates to follower controllers
 
 **Follower Controllers**:
+
 - Replicate metadata from active controller
 - Hot standbys (promote to active on failure)
 - Participate in leader election via Raft
 
 **Metadata Log** (`__cluster_metadata`):
+
 - Internal topic storing all metadata changes
 - Replicated across controller quorum
 - Brokers track offset to stay synchronized
@@ -3115,27 +3281,32 @@ Controllers (Raft Quorum):
 ### KRaft Key Terminology
 
 **node.id**:
+
 - Unique identifier for each Kafka node (broker or controller)
 - Replaces separate `broker.id` in ZooKeeper mode
 - Must be unique across entire cluster
 
 **process.roles**:
+
 - Defines node role: `broker`, `controller`, or `broker,controller` (combined)
 - `controller`: Dedicated controller (isolated mode, production recommended)
 - `broker`: Data broker only
 - `broker,controller`: Combined mode (testing/dev only in Confluent)
 
 **controller.quorum.voters**:
+
 - List of controller nodes forming Raft quorum
 - Format: `id@hostname:port`
 - Example: `1@controller1:9093,2@controller2:9093,3@controller3:9093`
 
 **cluster.id**:
+
 - Unique identifier for Kafka cluster
 - Generated once using `kafka-storage.sh random-uuid`
 - Must be same across all nodes
 
 **Listeners**:
+
 - `CONTROLLER`: Listener for controller-to-controller communication (Raft)
 - `PLAINTEXT/SSL`: Client traffic (producers/consumers)
 - Controllers use separate listener for Raft protocol
@@ -3212,32 +3383,33 @@ Benefits:
 
 #### Feature Comparison Table
 
-| Feature | ZooKeeper Mode | KRaft Mode |
-|---------|----------------|------------|
-| **Metadata Storage** | External ZooKeeper ensemble | Internal Raft quorum |
-| **Controller Election** | Via ZooKeeper watches | Via Raft consensus protocol |
-| **Metadata Propagation** | Brokers poll ZooKeeper | Event-sourced log with offsets |
-| **Controller Failover** | 2-10 seconds | <100ms (near-instantaneous) |
-| **Max Partitions** | ~200K practical limit | 2M+ supported |
-| **Operational Complexity** | High (two systems) | Lower (one system) |
-| **Metadata Consistency** | Eventually consistent | Strongly consistent |
-| **Production Ready** | Kafka 0.x-3.x | Kafka 3.3.1+ |
-| **Status in Kafka 4.0** | Removed | Default and only option |
+| Feature                    | ZooKeeper Mode              | KRaft Mode                     |
+| -------------------------- | --------------------------- | ------------------------------ |
+| **Metadata Storage**       | External ZooKeeper ensemble | Internal Raft quorum           |
+| **Controller Election**    | Via ZooKeeper watches       | Via Raft consensus protocol    |
+| **Metadata Propagation**   | Brokers poll ZooKeeper      | Event-sourced log with offsets |
+| **Controller Failover**    | 2-10 seconds                | <100ms (near-instantaneous)    |
+| **Max Partitions**         | ~200K practical limit       | 2M+ supported                  |
+| **Operational Complexity** | High (two systems)          | Lower (one system)             |
+| **Metadata Consistency**   | Eventually consistent       | Strongly consistent            |
+| **Production Ready**       | Kafka 0.x-3.x               | Kafka 3.3.1+                   |
+| **Status in Kafka 4.0**    | Removed                     | Default and only option        |
 
 **Key Terminology Differences**:
 
-| Concept | ZooKeeper Term | KRaft Term |
-|---------|----------------|------------|
-| Node Identifier | `broker.id` | `node.id` |
-| Cluster Controller | Elected broker | Dedicated controller nodes |
-| Metadata Store | ZooKeeper znodes | `__cluster_metadata` log |
-| Controller Selection | ZooKeeper watches | Raft leader election |
+| Concept              | ZooKeeper Term    | KRaft Term                 |
+| -------------------- | ----------------- | -------------------------- |
+| Node Identifier      | `broker.id`       | `node.id`                  |
+| Cluster Controller   | Elected broker    | Dedicated controller nodes |
+| Metadata Store       | ZooKeeper znodes  | `__cluster_metadata` log   |
+| Controller Selection | ZooKeeper watches | Raft leader election       |
 
 ## Configuration Examples
 
 ### KRaft Controller Configuration
 
 **Controller Node (controller.properties)**:
+
 ```properties
 # Node identification
 node.id=1                              # Unique ID for this controller
@@ -3265,6 +3437,7 @@ cluster.id=MkU3OEVBNTcwNTJENDM2Qk
 ### KRaft Broker Configuration
 
 **Broker Node (server.properties)**:
+
 ```properties
 # Node identification
 node.id=101                            # Unique ID (different from controllers)
@@ -3294,6 +3467,7 @@ min.insync.replicas=2
 ### Combined Mode (Dev/Test Only)
 
 **Single Node Combined Mode**:
+
 ```properties
 # Single node acting as both broker and controller (testing only)
 node.id=1
@@ -3317,7 +3491,7 @@ cluster.id=MkU3OEVBNTcwNTJENDM2Qk
 ### Docker Compose - KRaft Cluster (3 Controllers + 3 Brokers)
 
 ```yaml
-version: '3.8'
+version: "3.8"
 
 services:
   # Controllers
@@ -3326,36 +3500,36 @@ services:
     hostname: controller-1
     environment:
       KAFKA_NODE_ID: 1
-      KAFKA_PROCESS_ROLES: 'controller'
-      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@controller-1:9093,2@controller-2:9093,3@controller-3:9093'
-      KAFKA_LISTENERS: 'CONTROLLER://controller-1:9093'
-      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
-      KAFKA_LOG_DIRS: '/var/lib/kafka/data'
-      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      KAFKA_PROCESS_ROLES: "controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@controller-1:9093,2@controller-2:9093,3@controller-3:9093"
+      KAFKA_LISTENERS: "CONTROLLER://controller-1:9093"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
 
   controller-2:
     image: confluentinc/cp-kafka:7.6.0
     hostname: controller-2
     environment:
       KAFKA_NODE_ID: 2
-      KAFKA_PROCESS_ROLES: 'controller'
-      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@controller-1:9093,2@controller-2:9093,3@controller-3:9093'
-      KAFKA_LISTENERS: 'CONTROLLER://controller-2:9093'
-      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
-      KAFKA_LOG_DIRS: '/var/lib/kafka/data'
-      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      KAFKA_PROCESS_ROLES: "controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@controller-1:9093,2@controller-2:9093,3@controller-3:9093"
+      KAFKA_LISTENERS: "CONTROLLER://controller-2:9093"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
 
   controller-3:
     image: confluentinc/cp-kafka:7.6.0
     hostname: controller-3
     environment:
       KAFKA_NODE_ID: 3
-      KAFKA_PROCESS_ROLES: 'controller'
-      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@controller-1:9093,2@controller-2:9093,3@controller-3:9093'
-      KAFKA_LISTENERS: 'CONTROLLER://controller-3:9093'
-      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
-      KAFKA_LOG_DIRS: '/var/lib/kafka/data'
-      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      KAFKA_PROCESS_ROLES: "controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@controller-1:9093,2@controller-2:9093,3@controller-3:9093"
+      KAFKA_LISTENERS: "CONTROLLER://controller-3:9093"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
 
   # Brokers
   kafka-1:
@@ -3369,12 +3543,12 @@ services:
       - controller-3
     environment:
       KAFKA_NODE_ID: 101
-      KAFKA_PROCESS_ROLES: 'broker'
-      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@controller-1:9093,2@controller-2:9093,3@controller-3:9093'
-      KAFKA_LISTENERS: 'PLAINTEXT://kafka-1:9092'
-      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9092'
-      KAFKA_LOG_DIRS: '/var/lib/kafka/data'
-      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      KAFKA_PROCESS_ROLES: "broker"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@controller-1:9093,2@controller-2:9093,3@controller-3:9093"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-1:9092"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9092"
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
 
   kafka-2:
     image: confluentinc/cp-kafka:7.6.0
@@ -3387,12 +3561,12 @@ services:
       - controller-3
     environment:
       KAFKA_NODE_ID: 102
-      KAFKA_PROCESS_ROLES: 'broker'
-      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@controller-1:9093,2@controller-2:9093,3@controller-3:9093'
-      KAFKA_LISTENERS: 'PLAINTEXT://kafka-2:9092'
-      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9093'
-      KAFKA_LOG_DIRS: '/var/lib/kafka/data'
-      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      KAFKA_PROCESS_ROLES: "broker"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@controller-1:9093,2@controller-2:9093,3@controller-3:9093"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-2:9092"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9093"
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
 
   kafka-3:
     image: confluentinc/cp-kafka:7.6.0
@@ -3405,17 +3579,18 @@ services:
       - controller-3
     environment:
       KAFKA_NODE_ID: 103
-      KAFKA_PROCESS_ROLES: 'broker'
-      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@controller-1:9093,2@controller-2:9093,3@controller-3:9093'
-      KAFKA_LISTENERS: 'PLAINTEXT://kafka-3:9092'
-      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9094'
-      KAFKA_LOG_DIRS: '/var/lib/kafka/data'
-      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      KAFKA_PROCESS_ROLES: "broker"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@controller-1:9093,2@controller-2:9093,3@controller-3:9093"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-3:9092"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9094"
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
 ```
 
 ### Initialize Storage Format
 
 **Before Starting KRaft Cluster**:
+
 ```bash
 # Generate cluster ID
 CLUSTER_ID=$(kafka-storage.sh random-uuid)
@@ -3437,6 +3612,7 @@ kafka-server-start.sh /path/to/server.properties
 **E-commerce Platform Migration: ZooKeeper → KRaft**:
 
 **Before (ZooKeeper Mode)**:
+
 ```
 Infrastructure:
 - 3 ZooKeeper nodes (3 servers, 2GB RAM each)
@@ -3452,6 +3628,7 @@ Issues:
 ```
 
 **After (KRaft Mode)**:
+
 ```
 Infrastructure:
 - 3 Dedicated KRaft controllers (c5.large: 2 vCPU, 4GB RAM, 50GB SSD each)
@@ -3468,6 +3645,7 @@ Benefits:
 ```
 
 **Migration Process**:
+
 ```
 Week 1: Testing KRaft in staging
   - Deploy 3 KRaft controllers + 5 brokers
@@ -3491,16 +3669,19 @@ Result: Zero downtime migration, 100% metadata consistency
 ## Migration / Legacy Notes
 
 **ZooKeeper Deprecation Timeline**:
+
 - **Kafka 3.0**: KRaft early access (experimental)
 - **Kafka 3.3.1**: KRaft production ready
 - **Kafka 3.5+**: Migration tool available (`kafka-zk-migrator.sh`)
 - **Kafka 4.0**: ZooKeeper fully removed, KRaft only option
 
 **Migration Paths**:
+
 1. **New Clusters**: Start with KRaft directly (Kafka 3.3.1+)
 2. **Existing Clusters**: Migrate using `kafka-zk-migrator.sh` (online, zero downtime)
 
 **Migration Tool** (Kafka 3.5+):
+
 ```bash
 # Dual-write migration (ZooKeeper + KRaft both active)
 kafka-zk-migrator.sh migrate \
@@ -3516,6 +3697,7 @@ kafka-zk-migrator.sh finalize
 ```
 
 **Breaking Changes**:
+
 - Configuration properties changed: `broker.id` → `node.id`, added `process.roles`
 - Admin tools updated: Use `--bootstrap-controller` instead of `--zookeeper`
 - Monitoring: New JMX metrics for KRaft quorum
@@ -3556,7 +3738,7 @@ A: Metadata operations stop (can't create topics, rebalance, elect leaders). Dat
 
 - **Rebalancing** is the automatic process of redistributing partition assignments when consumer group membership changes (consumer joins/leaves/crashes or subscription updates).
 - Triggered when: consumer joins group, consumer crashes/leaves, heartbeat timeout, or subscription changes detected.
-- **Partition assignment strategies** (Range, RoundRobin, Sticky, CooperativeSticky) control *how* partitions are redistributed; **CooperativeSticky** is recommended (90% faster rebalancing).
+- **Partition assignment strategies** (Range, RoundRobin, Sticky, CooperativeSticky) control _how_ partitions are redistributed; **CooperativeSticky** is recommended (90% faster rebalancing).
 - Critical configs: `session.timeout.ms` (heartbeat deadline), `heartbeat.interval.ms` (ping frequency), `max.poll.interval.ms` (processing deadline), and `partition.assignment.strategy` (assign algo).
 - In Node.js: **@platformatic/kafka** and **KafkaJS** (@confluentinc/kafka-javascript) handle rebalancing automatically; custom rebalance listeners enable graceful shutdown/resource cleanup.
 
@@ -3604,7 +3786,7 @@ Three phases—all consumers pause message processing:
 
 ### Partition Assignment Strategies
 
-Four built-in strategies determine *which consumer gets which partition(s)*.
+Four built-in strategies determine _which consumer gets which partition(s)_.
 
 #### 1. **RangeAssignor** (Default in Kafka <3.0)
 
@@ -3657,7 +3839,8 @@ Result: Only affected partitions stop briefly; others continue consuming uninter
 
 **Benefit**: **~90% reduction** in rebalance time for producer/consumer; minimal throughput drop.
 
-**When to use**: 
+**When to use**:
+
 - Production always (if broker >= 3.0)
 - Development/local: Range fine.
 
@@ -3665,15 +3848,16 @@ Result: Only affected partitions stop briefly; others continue consuming uninter
 
 Three independent heartbeat/processing deadlines:
 
-| Config | Default | Purpose | Trigger |
-|--------|---------|---------|---------|
-| `session.timeout.ms` | 10,000 (10s) | Heartbeat deadline; broker removes consumer if no heartbeat in this time | Consumer crash / network partition |
-| `heartbeat.interval.ms` | 3,000 (3s) | How often consumer sends heartbeat to broker | Every N seconds (background thread) |
-| `max.poll.interval.ms` | 300,000 (5 min) | Max time between `poll()`/`consume()` calls; broker removes consumer if exceeded | Consumer hangs / slow processing |
+| Config                  | Default         | Purpose                                                                          | Trigger                             |
+| ----------------------- | --------------- | -------------------------------------------------------------------------------- | ----------------------------------- |
+| `session.timeout.ms`    | 10,000 (10s)    | Heartbeat deadline; broker removes consumer if no heartbeat in this time         | Consumer crash / network partition  |
+| `heartbeat.interval.ms` | 3,000 (3s)      | How often consumer sends heartbeat to broker                                     | Every N seconds (background thread) |
+| `max.poll.interval.ms`  | 300,000 (5 min) | Max time between `poll()`/`consume()` calls; broker removes consumer if exceeded | Consumer hangs / slow processing    |
 
 **Constraint**: `heartbeat.interval.ms < session.timeout.ms < max.poll.interval.ms`
 
 **Typical settings**:
+
 ```
 heartbeat.interval.ms = 3,000
 session.timeout.ms = 10,000  (3.33x heartbeat interval)
@@ -3700,29 +3884,29 @@ const consumer = kafka.consumer({
   kafkaJS: {
     groupId: "my-group",
     allowAutoTopicCreation: false,
-    
+
     // ===== REBALANCING CONFIG =====
     // Partition assignment strategy
     partitionAssignmentStrategy: "CooperativeSticky", // Options: "Range" | "RoundRobin" | "Sticky" | "CooperativeSticky"
-    
+
     // Session & processing timeouts (milliseconds)
-    sessionTimeout: 10_000,      // Heartbeat deadline (default: 30,000 in KafkaJS, 10,000 in Kafka)
-    rebalanceTimeout: 60_000,    // Max time for entire rebalance to complete
-    heartbeatInterval: 3_000,    // Heartbeat send frequency
+    sessionTimeout: 10_000, // Heartbeat deadline (default: 30,000 in KafkaJS, 10,000 in Kafka)
+    rebalanceTimeout: 60_000, // Max time for entire rebalance to complete
+    heartbeatInterval: 3_000, // Heartbeat send frequency
     maxBytesPerPartition: 1_048_576, // Fetch bytes per partition
-    
+
     // Rebalance listener: handle revocation/assignment gracefully
     onRevoked: async (partitions) => {
       console.log(
         "Partitions revoked (about to lose these):",
-        partitions.map((p) => `${p.topic}-${p.partition}`)
+        partitions.map((p) => `${p.topic}-${p.partition}`),
       );
       // Commit offsets, close resources, drain in-flight messages
     },
     onAssigned: async (partitions) => {
       console.log(
         "Partitions assigned (now consuming from these):",
-        partitions.map((p) => `${p.topic}-${p.partition}`)
+        partitions.map((p) => `${p.topic}-${p.partition}`),
       );
       // Initialize resources, reset state if needed
     },
@@ -3735,7 +3919,7 @@ await consumer.subscribe({ topics: ["my-topic"] });
 await consumer.run({
   eachMessage: async ({ topic, partition, message }) => {
     console.log(
-      `Processing: topic=${topic} partition=${partition} offset=${message.offset}`
+      `Processing: topic=${topic} partition=${partition} offset=${message.offset}`,
     );
     // Process message
     await doSomething(message);
@@ -3752,14 +3936,14 @@ const consumer = new Consumer({
   clientId: "my-app",
   bootstrapBrokers: ["localhost:9092"],
   groupId: "my-group",
-  
+
   // ===== REBALANCING CONFIG =====
   groupProtocol: "classic", // Supports "classic" only (no new protocol in 3.x)
   partitionAssignmentStrategy: "CooperativeSticky", // Options: "range" | "roundrobin" | "sticky" | "cooperativeSticky"
   sessionTimeout: 10_000,
   rebalanceTimeout: 60_000,
   heartbeatInterval: 3_000,
-  
+
   // Rebalance listeners
   onPartitionsRevoked: async (partitions) => {
     console.log("Partitions revoked:", partitions);
@@ -3769,7 +3953,7 @@ const consumer = new Consumer({
     console.log("Partitions assigned:", partitions);
     // Initialize
   },
-  
+
   // Deserializers
   deserializers: {
     key: stringDeserializers.key,
@@ -3786,7 +3970,7 @@ const stream = await consumer.consume({
 
 for await (const message of stream) {
   console.log(
-    `Processing: offset=${message.offset} partition=${message.partition}`
+    `Processing: offset=${message.offset} partition=${message.partition}`,
   );
   await doSomething(message);
 }
@@ -3802,7 +3986,7 @@ const producer = kafka.producer({
   kafkaJS: {
     clientId: "my-producer",
     brokers: ["localhost:9092"],
-    
+
     // Don't impact consumer directly, but good practice:
     timeout: 30_000,
     compression: 1, // Gzip (can slow down if CPU-bound)
@@ -3822,6 +4006,7 @@ const producer = new Producer({
 ### Scenario: 3-Consumer Group Processing Order Events
 
 **Setup**:
+
 - Topic: `orders` with 6 partitions
 - Consumers: `order-processor-1`, `order-processor-2`, `order-processor-3`
 - Strategy: `CooperativeSticky`
@@ -3838,29 +4023,29 @@ T=0s: All running, steady-state
 
 T=45s: order-processor-2 CRASHES (network failure)
        Last heartbeat: T=42s
-       
+
 T=52s: Broker detects heartbeat timeout (T=42s + 10s buffer)
        Removes order-processor-2 from group
        → Rebalance triggered
-       
+
 T=53s: REBALANCE PHASE 1 (Revoke):
        order-processor-1, order-processor-3 get onRevoked callback
        BUT: They continue consuming existing partitions
-       
+
 T=54s: Leader (order-processor-1) computes new assignment:
        order-processor-1 → partitions [0, 1, 2] (now owns 3)
        order-processor-3 → partitions [3, 4, 5] (now owns 3)
-       
+
 T=55s: REBALANCE PHASE 2 (Assign):
        order-processor-1 gets onAssigned([0, 1, 2])
        order-processor-3 gets onAssigned([3, 4, 5])
-       
+
        Partitions [2, 3] transferred from order-processor-2
        to new owners (order-processor-1, order-processor-3)
-       
+
 T=56s: Both consumers resume—offset seek to last committed offset
        Resume continuous consumption
-       
+
 ✅ Downtime: ~5-7s (only rebalance phase silent)
 📊 Impact: Throughput drop ~10-15% during rebalance (cooperative = minimal)
 ```
@@ -3878,7 +4063,7 @@ const consumer = new Consumer({
 
   onPartitionsRevoked: async (partitions) => {
     console.log(
-      `[REVOKE] Returning partitions: ${partitions.map((p) => p.partition).join(", ")}`
+      `[REVOKE] Returning partitions: ${partitions.map((p) => p.partition).join(", ")}`,
     );
     // Commit last processed offset
     await consumer.commitSync();
@@ -3886,7 +4071,7 @@ const consumer = new Consumer({
 
   onPartitionsAssigned: async (partitions) => {
     console.log(
-      `[ASSIGN] Assigned partitions: ${partitions.map((p) => p.partition).join(", ")}`
+      `[ASSIGN] Assigned partitions: ${partitions.map((p) => p.partition).join(", ")}`,
     );
     // Warm up caches, initialize state
   },
@@ -3896,11 +4081,13 @@ const stream = await consumer.consume({ topics: ["orders"] });
 
 for await (const message of stream) {
   const order = JSON.parse(message.value?.toString() || "{}");
-  console.log(`Processing order-id=${order.id} from partition=${message.partition}`);
-  
+  console.log(
+    `Processing order-id=${order.id} from partition=${message.partition}`,
+  );
+
   // Simulate work
   await processOrder(order);
-  
+
   // Periodic commits (avoid re-processing if rebalance occurs)
   if (message.offset % 100 === 0) {
     await consumer.commitSync();
@@ -3914,18 +4101,19 @@ for await (const message of stream) {
 
 **Identical Logic** — Consumer rebalancing code and config **unchanged** between ZooKeeper and KRaft. Both use same Classic Protocol (Eager/Cooperative). Differences are internal:
 
-| Aspect | ZooKeeper | KRaft |
-|--------|-----------|-------|
-| Metadata updates | Polling (slow, up to 6s latency) | Event-sourced log (fast, <100ms) |
-| Controller failover | 5-10s (ZK elects new controller) | <100ms (Raft instant) |
-| Rebalance latency | 100-500ms (metadata refresh) | 50-200ms (KRaft faster) |
-| **Client impact** | ✅ Same config | ✅ Same config |
+| Aspect              | ZooKeeper                        | KRaft                            |
+| ------------------- | -------------------------------- | -------------------------------- |
+| Metadata updates    | Polling (slow, up to 6s latency) | Event-sourced log (fast, <100ms) |
+| Controller failover | 5-10s (ZK elects new controller) | <100ms (Raft instant)            |
+| Rebalance latency   | 100-500ms (metadata refresh)     | 50-200ms (KRaft faster)          |
+| **Client impact**   | ✅ Same config                   | ✅ Same config                   |
 
 **Migration note**: When upgrading from ZK to KRaft, rebalancing may become **slightly faster** (partitions resume quicker), but no change to strategy/timeouts needed.
 
 ### KIP-848 (New Group Protocol) — Future
 
 Kafka 4.1+ will introduce KIP-848 (new protocol with incremental cooperative rebalancing = even faster). When available:
+
 - `groupProtocol: "new"` option in consumer config
 - Backward compatible (brokers support both classic + new)
 - Expected: 95%+ reduction in rebalance time (vs eager)
@@ -3949,6 +4137,7 @@ process.on("SIGTERM", async () => {
 
 **Q3: Can I manually trigger a rebalance?**
 A: Not directly, but yes via:
+
 1. Change subscription: `consumer.subscribe(newTopics)` → rebalance triggered
 2. Manually leave group: `await consumer.leaveGroup()` → rebalance triggered when current consumer steps out
 3. Join with different `groupId` → new independent consumer group (not rebalance, new group)
@@ -3958,6 +4147,7 @@ A: **Session timeout** = heartbeat missed → broker assumes crash (< 1s detecti
 
 **Q5: I'm getting frequent rebalances. What should I check?**
 A: Causes ranked by likelihood:
+
 1. **Consumer processing too slow** → `max.poll.interval.ms` too short. Increase to 2x average batch processing time.
 2. **Network instability** → heartbeats lost. Monitor broker-to-consumer RTT; increase `session.timeout.ms` if network flaky (but trade-off: slower crash detection).
 3. **Broker under load** → rebalance queued. Check broker CPU/GC logs.
@@ -3989,6 +4179,7 @@ A: In rebalance (join phase), all group members send join request. **First to re
 ## Why this matters
 
 Choosing right library and implementing patterns correctly ensures:
+
 - **Production stability**: Proper timeout configs prevent frequent rebalances
 - **Zero message loss**: Graceful shutdown signals through LeaveGroup + explicit offset commits
 - **Horizontal scaling**: Rebalance listeners handle resource cleanup as partitions are reassigned
@@ -4003,48 +4194,52 @@ Choosing right library and implementing patterns correctly ensures:
 
 ## Quick Comparison
 
-| Feature | @platformatic/kafka | KafkaJS |
-|---------|-------------------|---------|
-| **Type Safety** | Full TypeScript | Partial support |
-| **Performance** | High (native-like) | Good (pure JS) |
-| **Setup Complexity** | Low | Low |
-| **Rebalance Listeners** | Built-in events | Supported |
-| **Community Size** | Growing | Large |
-| **Documentation** | Good | Excellent |
-| **Kafka Versions** | 3.5+ | All |
-| **Use Kafka 3.5+?** | ✅ Choose this | If you prefer docs |
-| **Use Older Kafka?** | ❌ Not supported | ✅ Choose this |
+| Feature                 | @platformatic/kafka | KafkaJS            |
+| ----------------------- | ------------------- | ------------------ |
+| **Type Safety**         | Full TypeScript     | Partial support    |
+| **Performance**         | High (native-like)  | Good (pure JS)     |
+| **Setup Complexity**    | Low                 | Low                |
+| **Rebalance Listeners** | Built-in events     | Supported          |
+| **Community Size**      | Growing             | Large              |
+| **Documentation**       | Good                | Excellent          |
+| **Kafka Versions**      | 3.5+                | All                |
+| **Use Kafka 3.5+?**     | ✅ Choose this      | If you prefer docs |
+| **Use Older Kafka?**    | ❌ Not supported    | ✅ Choose this     |
 
 ## @platformatic/kafka - Production Patterns
 
 ### Setup & Configuration
 
 ```typescript
-import { Consumer, stringDeserializers, jsonDeserializer } from '@platformatic/kafka'
+import {
+  Consumer,
+  stringDeserializers,
+  jsonDeserializer,
+} from "@platformatic/kafka";
 
 const consumer = new Consumer({
   // Connection
-  clientId: 'order-processor-v1',
-  bootstrapBrokers: ['kafka1:9092', 'kafka2:9092', 'kafka3:9092'],
+  clientId: "order-processor-v1",
+  bootstrapBrokers: ["kafka1:9092", "kafka2:9092", "kafka3:9092"],
 
   // Consumer Group
-  groupId: 'order-processors',
+  groupId: "order-processors",
 
   // Rebalancing Strategy
-  groupProtocol: 'classic',
-  partitionAssignmentStrategy: 'cooperativeSticky', // 90% faster rebalancing
+  groupProtocol: "classic",
+  partitionAssignmentStrategy: "cooperativeSticky", // 90% faster rebalancing
 
   // Timeouts (critical for stability)
-  sessionTimeout: 10000,        // Heartbeat detection: 10s
-  rebalanceTimeout: 120000,     // Max time for rebalance: 2 min
-  heartbeatInterval: 3000,      // Heartbeat sent every 3s
+  sessionTimeout: 10000, // Heartbeat detection: 10s
+  rebalanceTimeout: 120000, // Max time for rebalance: 2 min
+  heartbeatInterval: 3000, // Heartbeat sent every 3s
 
   // Fetching
-  maxBytes: 10485760,           // 10MB per fetch
-  maxWaitTime: 5000,            // Wait 5s for max data
+  maxBytes: 10485760, // 10MB per fetch
+  maxWaitTime: 5000, // Wait 5s for max data
 
   // Offset Management
-  autocommit: false,            // Manual control (safer)
+  autocommit: false, // Manual control (safer)
 
   // Deserializers
   deserializers: {
@@ -4053,143 +4248,148 @@ const consumer = new Consumer({
     headerKey: stringDeserializers.headerKey,
     headerValue: stringDeserializers.headerValue,
   },
-})
+});
 
 // Rebalance listeners (critical for graceful shutdown)
-consumer.on('consumer:group:join', ({ memberId, generationId }) => {
-  console.log(`Joined group with member ID: ${memberId}, gen: ${generationId}`)
-})
+consumer.on("consumer:group:join", ({ memberId, generationId }) => {
+  console.log(`Joined group with member ID: ${memberId}, gen: ${generationId}`);
+});
 
-consumer.on('consumer:group:rejoin', () => {
-  console.log('Rebalance starting - pausing consumption')
+consumer.on("consumer:group:rejoin", () => {
+  console.log("Rebalance starting - pausing consumption");
   // Stop in-flight work if needed
-})
+});
 
-consumer.on('consumer:group:rebalance', ({ partitions }) => {
-  console.log(`Rebalance complete - assigned: ${JSON.stringify(partitions)}`)
+consumer.on("consumer:group:rebalance", ({ partitions }) => {
+  console.log(`Rebalance complete - assigned: ${JSON.stringify(partitions)}`);
   // Re-initialize resources
-})
+});
 
-consumer.on('consumer:heartbeat:error', ({ error }) => {
-  console.error('Heartbeat failed:', error)
+consumer.on("consumer:heartbeat:error", ({ error }) => {
+  console.error("Heartbeat failed:", error);
   // May trigger rejoin
-})
+});
 ```
 
 ### Consumer Pattern: Decoupled Processing
 
 ```typescript
-const stream = await consumer.consume({ topics: ['orders'] })
+const stream = await consumer.consume({ topics: ["orders"] });
 
 // Fetch and process independently to avoid poll timeout
-const messageQueue = []
-const BATCH_SIZE = 100
+const messageQueue = [];
+const BATCH_SIZE = 100;
 
 // Consumer thread: fetch messages
 const consumeTask = async () => {
   for await (const message of stream) {
-    messageQueue.push(message)
+    messageQueue.push(message);
     // Triggers rebalance event if needed, but doesn't block processing
   }
-}
+};
 
 // Processor thread: process at own pace
 const processTask = async () => {
   while (true) {
     if (messageQueue.length === 0) {
-      await new Promise(resolve => setTimeout(resolve, 100))
-      continue
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      continue;
     }
 
-    const batch = messageQueue.splice(0, BATCH_SIZE)
+    const batch = messageQueue.splice(0, BATCH_SIZE);
 
     try {
-      await Promise.all(batch.map(msg => processOrder(msg)))
-      
+      await Promise.all(batch.map((msg) => processOrder(msg)));
+
       // Commit after successful batch
-      await consumer.commitSync()
+      await consumer.commitSync();
     } catch (error) {
-      console.error('Batch processing failed:', error)
+      console.error("Batch processing failed:", error);
       // Don't commit - will retry from last offset on restart
     }
   }
-}
+};
 
-await Promise.all([consumeTask(), processTask()])
+await Promise.all([consumeTask(), processTask()]);
 ```
 
 ### Graceful Shutdown
 
 ```typescript
-let stream: any
+let stream: any;
 
 async function startConsumer() {
-  stream = await consumer.consume({ topics: ['orders'] })
+  stream = await consumer.consume({ topics: ["orders"] });
 
   for await (const message of stream) {
-    await processOrder(message)
+    await processOrder(message);
   }
 }
 
-process.on('SIGTERM', async () => {
-  console.log('Graceful shutdown initiated...')
+process.on("SIGTERM", async () => {
+  console.log("Graceful shutdown initiated...");
 
   // Close stream (stops new messages)
-  await stream?.close()
+  await stream?.close();
 
   // Leave group explicitly (fast, doesn't wait for timeout)
-  await consumer.leaveGroup()
+  await consumer.leaveGroup();
 
   // Close consumer
-  await consumer.close()
+  await consumer.close();
 
-  process.exit(0)
-})
+  process.exit(0);
+});
 
-process.on('SIGINT', () => process.exit(0))
+process.on("SIGINT", () => process.exit(0));
 
-startConsumer().catch(err => {
-  console.error('Fatal consumer error:', err)
-  process.exit(1)
-})
+startConsumer().catch((err) => {
+  console.error("Fatal consumer error:", err);
+  process.exit(1);
+});
 ```
 
 ### Error Handling & Retry
 
 ```typescript
-const MAX_RETRIES = 3
-const RETRY_DELAY_MS = 1000
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 1000;
 
 async function processOrderWithRetry(message) {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const order = JSON.parse(message.value?.toString() || '{}')
-      
+      const order = JSON.parse(message.value?.toString() || "{}");
+
       // Business logic
-      await createOrder(order)
-      return true
-      
+      await createOrder(order);
+      return true;
     } catch (error) {
       if (attempt === MAX_RETRIES) {
-        console.error(`Order processing failed after ${MAX_RETRIES} retries:`, error)
+        console.error(
+          `Order processing failed after ${MAX_RETRIES} retries:`,
+          error,
+        );
         // Send to dead-letter queue
-        await deadLetterQueue.send({ value: message.value, error: error.message })
-        return false
+        await deadLetterQueue.send({
+          value: message.value,
+          error: error.message,
+        });
+        return false;
       }
-      
+
       // Exponential backoff
-      await new Promise(resolve => 
-        setTimeout(resolve, RETRY_DELAY_MS * Math.pow(2, attempt - 1))
-      )
+      await new Promise((resolve) =>
+        setTimeout(resolve, RETRY_DELAY_MS * Math.pow(2, attempt - 1)),
+      );
     }
   }
 }
 
 // In consume loop
 for await (const message of stream) {
-  const success = await processOrderWithRetry(message)
+  const success = await processOrderWithRetry(message);
   if (success) {
-    await consumer.commitSync()
+    await consumer.commitSync();
   }
 }
 ```
@@ -4197,25 +4397,25 @@ for await (const message of stream) {
 ### Lag Monitoring
 
 ```typescript
-consumer.startLagMonitoring({ topics: ['orders'] }, 60000) // Every 60s
+consumer.startLagMonitoring({ topics: ["orders"] }, 60000); // Every 60s
 
-consumer.on('consumer:lag', (lagOffsets) => {
-  let totalLag = 0
+consumer.on("consumer:lag", (lagOffsets) => {
+  let totalLag = 0;
   for (const lags of Object.values(lagOffsets)) {
-    totalLag += lags.reduce((a: number, b: number) => a + b, 0)
+    totalLag += lags.reduce((a: number, b: number) => a + b, 0);
   }
-  
-  console.log(`Consumer lag: ${totalLag} messages`)
-  
+
+  console.log(`Consumer lag: ${totalLag} messages`);
+
   if (totalLag > 10000) {
-    console.warn('ALERT: Consumer falling behind (lag > 10K)')
+    console.warn("ALERT: Consumer falling behind (lag > 10K)");
     // Trigger scaling, alert ops
   }
-})
+});
 
-consumer.on('consumer:lag:error', (error) => {
-  console.error('Lag calculation failed:', error)
-})
+consumer.on("consumer:lag:error", (error) => {
+  console.error("Lag calculation failed:", error);
+});
 ```
 
 ## KafkaJS - Production Patterns
@@ -4223,22 +4423,22 @@ consumer.on('consumer:lag:error', (error) => {
 ### Setup & Configuration
 
 ```typescript
-import { Kafka } from 'kafkajs'
+import { Kafka } from "kafkajs";
 
 const kafka = new Kafka({
-  clientId: 'order-processor-v1',
-  brokers: ['kafka1:9092', 'kafka2:9092', 'kafka3:9092'],
-})
+  clientId: "order-processor-v1",
+  brokers: ["kafka1:9092", "kafka2:9092", "kafka3:9092"],
+});
 
 const consumer = kafka.consumer({
-  groupId: 'order-processors',
-  
+  groupId: "order-processors",
+
   // Rebalancing
-  protocol: ['cooperative-sticky'],  // Try this first, fallback to others if unsupported
+  protocol: ["cooperative-sticky"], // Try this first, fallback to others if unsupported
   sessionTimeout: 10000,
   heartbeatInterval: 3000,
   rebalanceTimeout: 60000,
-  
+
   // Performance
   maxBytesPerPartition: 1048576,
 
@@ -4250,72 +4450,77 @@ const consumer = kafka.consumer({
     multiplier: 2,
     randomizationFactor: 0.2,
   },
-})
+});
 ```
 
 ### Consumer Pattern with Rebalance Awareness
 
 ```typescript
 await consumer.subscribe({
-  topic: 'orders',
+  topic: "orders",
   fromBeginning: false,
-})
+});
 
 await consumer.run({
-  eachBatch: async ({ batch, resolveOffset, heartbeat, isRunning, isStale }) => {
-    const messages = batch.messages
+  eachBatch: async ({
+    batch,
+    resolveOffset,
+    heartbeat,
+    isRunning,
+    isStale,
+  }) => {
+    const messages = batch.messages;
 
     for (let i = 0; i < messages.length; i += 50) {
       // Stop if rebalance signaled or partition revoked
       if (!isRunning() || isStale()) {
-        console.log('Rebalance signal detected, stopping batch')
-        break
+        console.log("Rebalance signal detected, stopping batch");
+        break;
       }
 
-      const chunk = messages.slice(i, i + 50)
+      const chunk = messages.slice(i, i + 50);
 
       try {
         // Process chunk with concurrency control
-        await Promise.all(chunk.map(msg => processOrder(msg)))
+        await Promise.all(chunk.map((msg) => processOrder(msg)));
 
         // Update offset
         if (messages[i + 49]) {
-          resolveOffset(messages[i + 49].offset)
+          resolveOffset(messages[i + 49].offset);
         }
 
         // Keep heartbeat alive during processing
-        await heartbeat()
-
+        await heartbeat();
       } catch (error) {
-        console.error('Batch processing error:', error)
+        console.error("Batch processing error:", error);
         // Don't resolve offset - will retry from last committed
         // Heartbeat to stay alive in group
-        await heartbeat()
+        await heartbeat();
       }
     }
   },
-})
+});
 ```
 
 ### Graceful Shutdown with Manual Offset Commit
 
 ```typescript
-let isShuttingDown = false
+let isShuttingDown = false;
 
-const consumer = kafka.consumer({ groupId: 'order-processors' })
+const consumer = kafka.consumer({ groupId: "order-processors" });
 
-await consumer.subscribe({ topic: 'orders' })
+await consumer.subscribe({ topic: "orders" });
 
 await consumer.run({
   eachMessage: async ({ topic, partition, message }) => {
     if (isShuttingDown) {
-      console.log('Shutdown in progress, stopping')
-      return
+      console.log("Shutdown in progress, stopping");
+      return;
     }
 
     try {
-      const order = JSON.parse(message.value?.toString() || '{}')
-      await createOrder(order)
+      const order = JSON.parse(message.value?.toString() || "{}");
+      await createOrder(order);
 
       // Manual commit after success
       await consumer.commitOffsets([
@@ -4324,45 +4529,46 @@ await consumer.run({
           partition,
           offset: (Number(message.offset) + 1).toString(),
         },
-      ])
-
+      ]);
     } catch (error) {
-      console.error('Order processing failed:', error)
+      console.error("Order processing failed:", error);
       // Don't commit - will retry on restart
     }
   },
-})
+});
 
-process.on('SIGTERM', async () => {
-  console.log('Shutdown: stopping consumption')
-  isShuttingDown = true
+process.on("SIGTERM", async () => {
+  console.log("Shutdown: stopping consumption");
+  isShuttingDown = true;
 
   // Disconnect (sends LeaveGroup), doesn't wait for long timeouts
-  await consumer.disconnect()
+  await consumer.disconnect();
 
-  process.exit(0)
-})
+  process.exit(0);
+});
 ```
 
 ### Error Handling with Topic Routing
 
 ```typescript
-const deadLetterTopic = 'orders-dlq'
+const deadLetterTopic = "orders-dlq";
 
 await consumer.run({
   eachMessage: async ({ topic, partition, message }) => {
     try {
-      const order = JSON.parse(message.value?.toString() || '{}')
-      
+      const order = JSON.parse(message.value?.toString() || "{}");
+
       // Validation
       if (!order.id || !order.customerId) {
-        throw new Error('Invalid order: missing id or customerId')
+        throw new Error("Invalid order: missing id or customerId");
       }
 
-      await createOrder(order)
-
+      await createOrder(order);
     } catch (error) {
-      console.error(`Error processing message from partition ${partition}:`, error)
+      console.error(
+        `Error processing message from partition ${partition}:`,
+        error,
+      );
 
       // Send to dead-letter queue for manual inspection
       await producer.send({
@@ -4379,10 +4585,10 @@ await consumer.run({
             }),
           },
         ],
-      })
+      });
     }
   },
-})
+});
 ```
 
 ## Common Mistakes & Solutions
@@ -4393,21 +4599,21 @@ await consumer.run({
 // ❌ WRONG: Process inside poll loop - risks max.poll.interval.ms timeout
 await consumer.run({
   eachMessage: async ({ message }) => {
-    await slowDatabaseWrite(message) // 5 minutes → TIMEOUT!
+    await slowDatabaseWrite(message); // 5 minutes → TIMEOUT!
   },
-})
+});
 
 // ✅ CORRECT: Decouple fetching from processing
-const messageQueue = []
+const messageQueue = [];
 
 // Fetch quickly
 for await (const message of stream) {
-  messageQueue.push(message)
+  messageQueue.push(message);
 }
 
 // Process at own pace
 for (const message of messageQueue) {
-  await slowDatabaseWrite(message)
+  await slowDatabaseWrite(message);
 }
 ```
 
@@ -4415,21 +4621,21 @@ for (const message of messageQueue) {
 
 ```typescript
 // ❌ WRONG: No rebalance handling - may lose offsets on shutdown
-const stream = await consumer.consume({ topics: ['orders'] })
+const stream = await consumer.consume({ topics: ["orders"] });
 for await (const message of stream) {
-  await processOrder(message)
+  await processOrder(message);
   // If rebalance happens, uncommitted offsets lost
 }
 
 // ✅ CORRECT: Handle rebalance events
-consumer.on('consumer:group:rejoin', () => {
-  console.log('Rebalance starting - finalizing current batch')
+consumer.on("consumer:group:rejoin", () => {
+  console.log("Rebalance starting - finalizing current batch");
   // Stop accepting new messages, wait for in-flight to complete
-})
+});
 
 for await (const message of stream) {
-  await processOrder(message)
-  await consumer.commitSync() // Explicit commit
+  await processOrder(message);
+  await consumer.commitSync(); // Explicit commit
 }
 ```
 
@@ -4437,23 +4643,23 @@ for await (const message of stream) {
 
 ```typescript
 // ❌ WRONG: No lag monitoring - miss scaling needs
-const consumer = new Consumer({ groupId: 'orders' })
+const consumer = new Consumer({ groupId: "orders" });
 // ... consuming, but no idea if consumer falling behind
 
 // ✅ CORRECT: Monitor lag continuously
-consumer.startLagMonitoring({ topics: ['orders'] }, 60000)
+consumer.startLagMonitoring({ topics: ["orders"] }, 60000);
 
-consumer.on('consumer:lag', (allLags) => {
-  let totalLag = 0
+consumer.on("consumer:lag", (allLags) => {
+  let totalLag = 0;
   for (const lags of Object.values(allLags)) {
-    totalLag += lags.reduce((a: number, b: number) => a + b, 0)
+    totalLag += lags.reduce((a: number, b: number) => a + b, 0);
   }
-  
+
   if (totalLag > THRESHOLD) {
     // Scale: deploy more consumer instances
-    logger.warn('Consumer lag critical, scaling needed')
+    logger.warn("Consumer lag critical, scaling needed");
   }
-})
+});
 ```
 
 ## Configuration Tuning for Your Workload
@@ -4509,10 +4715,10 @@ consumer.on('consumer:lag', (allLags) => {
 {
   eachBatch: async ({ batch, heartbeat }) => {
     for (const message of batch.messages) {
-      await heavyProcessing(message)
-      await heartbeat()  // Keep alive during processing
+      await heavyProcessing(message);
+      await heartbeat(); // Keep alive during processing
     }
-  }
+  };
 }
 ```
 
@@ -4535,4 +4741,3 @@ consumer.on('consumer:lag', (allLags) => {
 - [KafkaJS Documentation](https://kafka.js.org/) (Retrieved: 2026-02-17)
 - [Apache Kafka Consumer Configuration](https://kafka.apache.org/documentation/#consumerconfigs) (Retrieved: 2026-02-17)
 - [Confluent Docs - Kafka Consumer Design](https://docs.confluent.io/kafka/design/consumer-design.html) (Retrieved: 2026-02-17)
-
