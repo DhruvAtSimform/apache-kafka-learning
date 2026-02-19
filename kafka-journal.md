@@ -3547,3 +3547,992 @@ A: Metadata operations stop (can't create topics, rebalance, elect leaders). Dat
 - [KIP-500: Replace ZooKeeper with Self-Managed Metadata Quorum](https://cwiki.apache.org/confluence/display/KAFKA/KIP-500%3A+Replace+ZooKeeper+with+a+Self-Managed+Metadata+Quorum) (Retrieved: 2026-02-11)
 - [Kafka 4.0 Release Notes - ZooKeeper Removal](https://kafka.apache.org/documentation/#upgrade) (Retrieved: 2026-02-11)
 - [Migrating from ZooKeeper to KRaft](https://docs.confluent.io/platform/current/installation/migrate-zk-kraft.html) (Retrieved: 2026-02-11)
+
+---
+
+# Kafka Journal — Consumer Group Rebalancing (Date: 2026-02-17)
+
+## TL;DR
+
+- **Rebalancing** is the automatic process of redistributing partition assignments when consumer group membership changes (consumer joins/leaves/crashes or subscription updates).
+- Triggered when: consumer joins group, consumer crashes/leaves, heartbeat timeout, or subscription changes detected.
+- **Partition assignment strategies** (Range, RoundRobin, Sticky, CooperativeSticky) control *how* partitions are redistributed; **CooperativeSticky** is recommended (90% faster rebalancing).
+- Critical configs: `session.timeout.ms` (heartbeat deadline), `heartbeat.interval.ms` (ping frequency), `max.poll.interval.ms` (processing deadline), and `partition.assignment.strategy` (assign algo).
+- In Node.js: **@platformatic/kafka** and **KafkaJS** (@confluentinc/kafka-javascript) handle rebalancing automatically; custom rebalance listeners enable graceful shutdown/resource cleanup.
+
+## Why this matters
+
+Rebalancing ensures load is evenly distributed across consumers—critical for horizontal scaling in production. However, **stop-the-world rebalancing** pauses ALL consumers during recalculation. Misconfigured timeouts cause cascading failures (frequent rebalances = throughput drop). CooperativeSticky algorithm reduces downtime by 90%+, making it essential for low-latency applications. For Node.js microservices, rebalance listeners prevent message loss during graceful shutdown.
+
+## Versions & Scope
+
+- **Kafka 3.x.x**: Uses Classic Protocol (Eager/Cooperative variants); CooperativeSticky available from 3.0+
+- **Kafka 4.x.x**: Classic Protocol standard; KIP-848 (New Protocol) in development (future versions)
+- **KRaft vs ZooKeeper**: Rebalancing logic **identical** in both modes; KRaft slightly faster (controller faster) but no semantic differences
+- **Node.js**: @platformatic/kafka (Kafka 3.5+, modern), KafkaJS (broad compatibility, Kafka 0.10+)
+
+## Core Concepts
+
+### Consumer Group & Partition Assignment
+
+A **consumer group** is a set of consumers that coordinate to consume a topic cooperatively. Each partition is assigned to **exactly one** consumer in the group. If group has 3 consumers and topic has 9 partitions, each consumer owns 3 partitions (typical balanced scenario).
+
+### Rebalancing Triggers
+
+1. **Membership change**: Consumer joins group (subscribed after connection) or leaves (graceful close or crash)
+2. **Heartbeat timeout**: Consumer fails to send heartbeat; broker removes it after `session.timeout.ms`
+3. **Poll timeout**: Consumer doesn't call `poll()` (or `consume()` for async consumers) within `max.poll.interval.ms`
+4. **Subscription change**: Consumer modifies topic subscriptions via `subscribe(newTopics)` or assignment via `assign(newPartitions)`
+
+### Rebalancing State Machine (Classic Protocol)
+
+Three phases—all consumers pause message processing:
+
+```
+[Stable]
+   ↓ (trigger: consumer joins/leaves/heartbeat fails)
+[Finding Coordinator] → Consumers locate group coordinator (broker)
+   ↓
+[Joining]               → Consumers send join request; heartbeat stops; group waits for GenerationID
+   ↓
+[Syncing]               → Leader consumer computes partition assignments (via strategy); all consumers sync
+   ↓
+[Stable]                → Resume message consumption; participants heartbeat to remain in group
+```
+
+**GenerationID**: Incremented each rebalance; ensures stale clients (network partitions) can't accidentally join after they were removed.
+
+### Partition Assignment Strategies
+
+Four built-in strategies determine *which consumer gets which partition(s)*.
+
+#### 1. **RangeAssignor** (Default in Kafka <3.0)
+
+**Algorithm**: Sort partitions `[0, 1, 2, ..., N-1]` and consumers alphabetically, divide partitions into ranges.
+
+```
+Example: Topic "logs" with 6 partitions, consumers [consumer-1, consumer-2, consumer-3]
+Step 1: Partitions [0, 1, 2, 3, 4, 5], Consumers [consumer-1, consumer-2, consumer-3]
+Step 2: Range size = 6 / 3 = 2
+Step 3: consumer-1 → [0, 1], consumer-2 → [2, 3], consumer-3 → [4, 5]
+```
+
+**Problem**: Causes partition imbalance across topics (if multiple topics subscribed, range gaps compound).
+
+#### 2. **CircularRoundRobinAssignor** (Round-Robin)
+
+**Algorithm**: Assign partitions in circular order across consumers (all subscribed topics intermixed).
+
+```
+Example: Topics ["logs", "events"] (3 partitions each), consumers [consumer-1, consumer-2]
+Step 1: All partitions = [logs-0, events-0, logs-1, events-1, logs-2, events-2]
+Step 2: Rotate assignment: consumer-1 → [logs-0, logs-2, events-1]
+                            consumer-2 → [events-0, logs-1, events-2]
+```
+
+**Benefit**: More balanced than Range.
+
+#### 3. **StickyAssignor** (Recommended, non-cooperative)
+
+**Algorithm**: Minimize partition movement and balance-aware. Consumer retains as many partitions as possible from previous assignment.
+
+```
+Example: Consumer-2 crashes; StickyAssignor redistributes only its partitions
+         Reassignments minimal; existing consumers keep their original partitions
+```
+
+**Benefit**: Reduces rebalance time (fewer state transfers), improves cache locality.
+
+**Tradeoff**: All consumers still stop during rebalance (stop-the-world).
+
+#### 4. **CooperativeStickyAssignor** (Recommended, cooperative)
+
+**Algorithm**: Like StickyAssignor but allows **cooperative rebalancing**—consumers don't need to stop; they gradually hand off partitions.
+
+```
+Phase 1 (Revoke Offset): Consumer-1 revokes ["partition-A", "partition-B"] only
+Phase 2 (Assign New): Consumer-2 takes ["partition-A", "partition-B"]
+Result: Only affected partitions stop briefly; others continue consuming uninterruptedly
+```
+
+**Benefit**: **~90% reduction** in rebalance time for producer/consumer; minimal throughput drop.
+
+**When to use**: 
+- Production always (if broker >= 3.0)
+- Development/local: Range fine.
+
+### Session & Processing Timeouts
+
+Three independent heartbeat/processing deadlines:
+
+| Config | Default | Purpose | Trigger |
+|--------|---------|---------|---------|
+| `session.timeout.ms` | 10,000 (10s) | Heartbeat deadline; broker removes consumer if no heartbeat in this time | Consumer crash / network partition |
+| `heartbeat.interval.ms` | 3,000 (3s) | How often consumer sends heartbeat to broker | Every N seconds (background thread) |
+| `max.poll.interval.ms` | 300,000 (5 min) | Max time between `poll()`/`consume()` calls; broker removes consumer if exceeded | Consumer hangs / slow processing |
+
+**Constraint**: `heartbeat.interval.ms < session.timeout.ms < max.poll.interval.ms`
+
+**Typical settings**:
+```
+heartbeat.interval.ms = 3,000
+session.timeout.ms = 10,000  (3.33x heartbeat interval)
+max.poll.interval.ms = 300,000
+```
+
+If consumer takes 2 minutes per batch → increase `max.poll.interval.ms` to >= 120,000.
+
+## Configuration Examples
+
+### Confluent-Kafka-JS (KafkaJS wrapper)
+
+```typescript
+import { KafkaJS } from "@confluentinc/kafka-javascript";
+
+const kafka = new KafkaJS({
+  kafkaJS: {
+    clientId: "my-app",
+    brokers: ["localhost:9092"],
+  },
+});
+
+const consumer = kafka.consumer({
+  kafkaJS: {
+    groupId: "my-group",
+    allowAutoTopicCreation: false,
+    
+    // ===== REBALANCING CONFIG =====
+    // Partition assignment strategy
+    partitionAssignmentStrategy: "CooperativeSticky", // Options: "Range" | "RoundRobin" | "Sticky" | "CooperativeSticky"
+    
+    // Session & processing timeouts (milliseconds)
+    sessionTimeout: 10_000,      // Heartbeat deadline (default: 30,000 in KafkaJS, 10,000 in Kafka)
+    rebalanceTimeout: 60_000,    // Max time for entire rebalance to complete
+    heartbeatInterval: 3_000,    // Heartbeat send frequency
+    maxBytesPerPartition: 1_048_576, // Fetch bytes per partition
+    
+    // Rebalance listener: handle revocation/assignment gracefully
+    onRevoked: async (partitions) => {
+      console.log(
+        "Partitions revoked (about to lose these):",
+        partitions.map((p) => `${p.topic}-${p.partition}`)
+      );
+      // Commit offsets, close resources, drain in-flight messages
+    },
+    onAssigned: async (partitions) => {
+      console.log(
+        "Partitions assigned (now consuming from these):",
+        partitions.map((p) => `${p.topic}-${p.partition}`)
+      );
+      // Initialize resources, reset state if needed
+    },
+  },
+});
+
+await consumer.connect();
+await consumer.subscribe({ topics: ["my-topic"] });
+
+await consumer.run({
+  eachMessage: async ({ topic, partition, message }) => {
+    console.log(
+      `Processing: topic=${topic} partition=${partition} offset=${message.offset}`
+    );
+    // Process message
+    await doSomething(message);
+  },
+});
+```
+
+### Platformatic-Kafka
+
+```typescript
+import { Consumer } from "@platformatic/kafka";
+
+const consumer = new Consumer({
+  clientId: "my-app",
+  bootstrapBrokers: ["localhost:9092"],
+  groupId: "my-group",
+  
+  // ===== REBALANCING CONFIG =====
+  groupProtocol: "classic", // Supports "classic" only (no new protocol in 3.x)
+  partitionAssignmentStrategy: "CooperativeSticky", // Options: "range" | "roundrobin" | "sticky" | "cooperativeSticky"
+  sessionTimeout: 10_000,
+  rebalanceTimeout: 60_000,
+  heartbeatInterval: 3_000,
+  
+  // Rebalance listeners
+  onPartitionsRevoked: async (partitions) => {
+    console.log("Partitions revoked:", partitions);
+    // Commit offsets, cleanup
+  },
+  onPartitionsAssigned: async (partitions) => {
+    console.log("Partitions assigned:", partitions);
+    // Initialize
+  },
+  
+  // Deserializers
+  deserializers: {
+    key: stringDeserializers.key,
+    value: jsonDeserializer,
+    headerKey: stringDeserializers.headerKey,
+    headerValue: stringDeserializers.headerValue,
+  },
+});
+
+// Consume with stream API
+const stream = await consumer.consume({
+  topics: ["my-topic"],
+});
+
+for await (const message of stream) {
+  console.log(
+    `Processing: offset=${message.offset} partition=${message.partition}`
+  );
+  await doSomething(message);
+}
+```
+
+### Producer Config (Affects Rebalance Indirectly)
+
+Slow producers can trigger `max.poll.interval.ms` timeout if processing takes long:
+
+```typescript
+// KafkaJS
+const producer = kafka.producer({
+  kafkaJS: {
+    clientId: "my-producer",
+    brokers: ["localhost:9092"],
+    
+    // Don't impact consumer directly, but good practice:
+    timeout: 30_000,
+    compression: 1, // Gzip (can slow down if CPU-bound)
+  },
+});
+
+// Platformatic
+const producer = new Producer({
+  clientId: "my-producer",
+  bootstrapBrokers: ["localhost:9092"],
+  compression: "gzip",
+});
+```
+
+## Real-World Example
+
+### Scenario: 3-Consumer Group Processing Order Events
+
+**Setup**:
+- Topic: `orders` with 6 partitions
+- Consumers: `order-processor-1`, `order-processor-2`, `order-processor-3`
+- Strategy: `CooperativeSticky`
+- Config: `session.timeout.ms=10s`, `heartbeat.interval.ms=3s`, `max.poll.interval.ms=300s`
+
+**Timeline**:
+
+```
+T=0s: All running, steady-state
+      order-processor-1 → partitions [0, 1]
+      order-processor-2 → partitions [2, 3]
+      order-processor-3 → partitions [4, 5]
+      Heartbeats: Each sends heartbeat every 3s
+
+T=45s: order-processor-2 CRASHES (network failure)
+       Last heartbeat: T=42s
+       
+T=52s: Broker detects heartbeat timeout (T=42s + 10s buffer)
+       Removes order-processor-2 from group
+       → Rebalance triggered
+       
+T=53s: REBALANCE PHASE 1 (Revoke):
+       order-processor-1, order-processor-3 get onRevoked callback
+       BUT: They continue consuming existing partitions
+       
+T=54s: Leader (order-processor-1) computes new assignment:
+       order-processor-1 → partitions [0, 1, 2] (now owns 3)
+       order-processor-3 → partitions [3, 4, 5] (now owns 3)
+       
+T=55s: REBALANCE PHASE 2 (Assign):
+       order-processor-1 gets onAssigned([0, 1, 2])
+       order-processor-3 gets onAssigned([3, 4, 5])
+       
+       Partitions [2, 3] transferred from order-processor-2
+       to new owners (order-processor-1, order-processor-3)
+       
+T=56s: Both consumers resume—offset seek to last committed offset
+       Resume continuous consumption
+       
+✅ Downtime: ~5-7s (only rebalance phase silent)
+📊 Impact: Throughput drop ~10-15% during rebalance (cooperative = minimal)
+```
+
+**Code example (detection):**
+
+```typescript
+// Platformatic-Kafka
+const consumer = new Consumer({
+  groupId: "order-processors",
+  partitionAssignmentStrategy: "CooperativeSticky",
+  sessionTimeout: 10_000,
+  heartbeatInterval: 3_000,
+  maxBytesPerPartition: 10_485_760,
+
+  onPartitionsRevoked: async (partitions) => {
+    console.log(
+      `[REVOKE] Returning partitions: ${partitions.map((p) => p.partition).join(", ")}`
+    );
+    // Commit last processed offset
+    await consumer.commitSync();
+  },
+
+  onPartitionsAssigned: async (partitions) => {
+    console.log(
+      `[ASSIGN] Assigned partitions: ${partitions.map((p) => p.partition).join(", ")}`
+    );
+    // Warm up caches, initialize state
+  },
+});
+
+const stream = await consumer.consume({ topics: ["orders"] });
+
+for await (const message of stream) {
+  const order = JSON.parse(message.value?.toString() || "{}");
+  console.log(`Processing order-id=${order.id} from partition=${message.partition}`);
+  
+  // Simulate work
+  await processOrder(order);
+  
+  // Periodic commits (avoid re-processing if rebalance occurs)
+  if (message.offset % 100 === 0) {
+    await consumer.commitSync();
+  }
+}
+```
+
+## Migration / Legacy Notes
+
+### ZooKeeper vs KRaft (Rebalancing)
+
+**Identical Logic** — Consumer rebalancing code and config **unchanged** between ZooKeeper and KRaft. Both use same Classic Protocol (Eager/Cooperative). Differences are internal:
+
+| Aspect | ZooKeeper | KRaft |
+|--------|-----------|-------|
+| Metadata updates | Polling (slow, up to 6s latency) | Event-sourced log (fast, <100ms) |
+| Controller failover | 5-10s (ZK elects new controller) | <100ms (Raft instant) |
+| Rebalance latency | 100-500ms (metadata refresh) | 50-200ms (KRaft faster) |
+| **Client impact** | ✅ Same config | ✅ Same config |
+
+**Migration note**: When upgrading from ZK to KRaft, rebalancing may become **slightly faster** (partitions resume quicker), but no change to strategy/timeouts needed.
+
+### KIP-848 (New Group Protocol) — Future
+
+Kafka 4.1+ will introduce KIP-848 (new protocol with incremental cooperative rebalancing = even faster). When available:
+- `groupProtocol: "new"` option in consumer config
+- Backward compatible (brokers support both classic + new)
+- Expected: 95%+ reduction in rebalance time (vs eager)
+- ⚠️ Unverified (not yet stable in production Kafka as of 4.0)
+
+## QnA
+
+**Q1: What happens if all consumers in a group crash?**
+A: If all consumers disappear, group enters "Empty" state (offsets retained). When new consumer joins with same `groupId`, it either starts from last committed offset (if `auto.offset.reset=earliest`) or latest (if `auto.offset.reset=latest`). Coordinator doesn't rebalance; single consumer simply subscribes and consumes alone.
+
+**Q2: How do I gracefully shutdown a consumer without causing rebalance pause?**
+A: Call `consumer.disconnect()` (KafkaJS) or `consumer.close()` (Platformatic). This sends `LeaveGroup` request before closing—broker knows consumer is intentionally leaving (not crashed), so rebalance is optimized (less wait). Crashes = rebalance delay while heartbeat times out.
+
+```typescript
+process.on("SIGTERM", async () => {
+  console.log("Shutting down gracefully...");
+  await consumer.disconnect(); // Signals intentional departure
+  process.exit(0);
+});
+```
+
+**Q3: Can I manually trigger a rebalance?**
+A: Not directly, but yes via:
+1. Change subscription: `consumer.subscribe(newTopics)` → rebalance triggered
+2. Manually leave group: `await consumer.leaveGroup()` → rebalance triggered when current consumer steps out
+3. Join with different `groupId` → new independent consumer group (not rebalance, new group)
+
+**Q4: What's the difference between session timeout and max poll interval?**
+A: **Session timeout** = heartbeat missed → broker assumes crash (< 1s detection). **Max poll interval** = consumer hangs on processing (no `poll()` call) → broker assumes deadlock (slower, ~5min default). Example: Consumer processes batch for 2 minutes → must increase `max.poll.interval.ms` to >= 120,000 to prevent false timeout eviction.
+
+**Q5: I'm getting frequent rebalances. What should I check?**
+A: Causes ranked by likelihood:
+1. **Consumer processing too slow** → `max.poll.interval.ms` too short. Increase to 2x average batch processing time.
+2. **Network instability** → heartbeats lost. Monitor broker-to-consumer RTT; increase `session.timeout.ms` if network flaky (but trade-off: slower crash detection).
+3. **Broker under load** → rebalance queued. Check broker CPU/GC logs.
+4. **Consumer restarts** → normal on deployment. Minimize by using CooperativeSticky.
+
+**Q6: How is the partition leader (group leader) elected?**
+A: In rebalance (join phase), all group members send join request. **First to respond** becomes group leader. Leader computes assignments (runs assignment strategy). Other members become "followers" (follow leader's assignment). Leader role is **per-rebalance**; can rotate (no sticky leader). Used only during rebalance (not for data consumption).
+
+## Sources
+
+- [Apache Kafka Consumer Configuration](https://kafka.apache.org/documentation/#consumerconfigs) (Retrieved: 2026-02-17)
+- [Confluent Consumer Rebalancing Guide](https://docs.confluent.io/kafka/design/rebalancing.html) (Retrieved: 2026-02-17)
+- [KIP-54: Sticky Partition Assignment Strategy](https://cwiki.apache.org/confluence/display/KAFKA/KIP-54%3A+Sticky+Partition+Assignment+Strategy+for+Kafka+Consumer) (Retrieved: 2026-02-17)
+- [KIP-429: Cooperative Rebalancing Protocol](https://cwiki.apache.org/confluence/display/KAFKA/KIP-429%3A+Cooperative+Rebalancing) (Retrieved: 2026-02-17)
+- [@platformatic/kafka Documentation](https://docs.platformatic.dev/docs/packages/db/package-reference/pkg-kafka) (Retrieved: 2026-02-17)
+
+---
+
+# Kafka Journal — Node.js Implementation: @platformatic/kafka & KafkaJS (Date: 2026-02-17)
+
+## TL;DR
+
+- **@platformatic/kafka**: Modern, fully-typed TypeScript library (Kafka 3.5+), high performance, built-in rebalance listeners
+- **KafkaJS**: Most popular, broad compatibility (all Kafka versions), excellent documentation, larger community
+- Both libraries handle rebalancing automatically; use rebalance listeners for graceful shutdown and resource cleanup
+- Critical configs apply to both: **partition assignment strategy** (CooperativeSticky recommended), **session/heartbeat timeouts**, **offset commit strategy**
+- Node.js apps should implement proper error handling, graceful shutdown (LeaveGroup), and lag monitoring
+
+## Why this matters
+
+Choosing right library and implementing patterns correctly ensures:
+- **Production stability**: Proper timeout configs prevent frequent rebalances
+- **Zero message loss**: Graceful shutdown signals through LeaveGroup + explicit offset commits
+- **Horizontal scaling**: Rebalance listeners handle resource cleanup as partitions are reassigned
+- **Observability**: Lag monitoring catches consumer falling behind early
+
+## Versions & Scope
+
+- **@platformatic/kafka**: Kafka 3.5-4.0+, Node.js 18+, TypeScript first
+- **KafkaJS**: Kafka 0.10+, Node.js 12+, JavaScript/TypeScript
+- Both support: CooperativeSticky (Kafka 2.4+), idempotent producers, exactly-once semantics (partial)
+- Production-ready for both
+
+## Quick Comparison
+
+| Feature | @platformatic/kafka | KafkaJS |
+|---------|-------------------|---------|
+| **Type Safety** | Full TypeScript | Partial support |
+| **Performance** | High (native-like) | Good (pure JS) |
+| **Setup Complexity** | Low | Low |
+| **Rebalance Listeners** | Built-in events | Supported |
+| **Community Size** | Growing | Large |
+| **Documentation** | Good | Excellent |
+| **Kafka Versions** | 3.5+ | All |
+| **Use Kafka 3.5+?** | ✅ Choose this | If you prefer docs |
+| **Use Older Kafka?** | ❌ Not supported | ✅ Choose this |
+
+## @platformatic/kafka - Production Patterns
+
+### Setup & Configuration
+
+```typescript
+import { Consumer, stringDeserializers, jsonDeserializer } from '@platformatic/kafka'
+
+const consumer = new Consumer({
+  // Connection
+  clientId: 'order-processor-v1',
+  bootstrapBrokers: ['kafka1:9092', 'kafka2:9092', 'kafka3:9092'],
+
+  // Consumer Group
+  groupId: 'order-processors',
+
+  // Rebalancing Strategy
+  groupProtocol: 'classic',
+  partitionAssignmentStrategy: 'cooperativeSticky', // 90% faster rebalancing
+
+  // Timeouts (critical for stability)
+  sessionTimeout: 10000,        // Heartbeat detection: 10s
+  rebalanceTimeout: 120000,     // Max time for rebalance: 2 min
+  heartbeatInterval: 3000,      // Heartbeat sent every 3s
+
+  // Fetching
+  maxBytes: 10485760,           // 10MB per fetch
+  maxWaitTime: 5000,            // Wait 5s for max data
+
+  // Offset Management
+  autocommit: false,            // Manual control (safer)
+
+  // Deserializers
+  deserializers: {
+    key: stringDeserializers.key,
+    value: jsonDeserializer,
+    headerKey: stringDeserializers.headerKey,
+    headerValue: stringDeserializers.headerValue,
+  },
+})
+
+// Rebalance listeners (critical for graceful shutdown)
+consumer.on('consumer:group:join', ({ memberId, generationId }) => {
+  console.log(`Joined group with member ID: ${memberId}, gen: ${generationId}`)
+})
+
+consumer.on('consumer:group:rejoin', () => {
+  console.log('Rebalance starting - pausing consumption')
+  // Stop in-flight work if needed
+})
+
+consumer.on('consumer:group:rebalance', ({ partitions }) => {
+  console.log(`Rebalance complete - assigned: ${JSON.stringify(partitions)}`)
+  // Re-initialize resources
+})
+
+consumer.on('consumer:heartbeat:error', ({ error }) => {
+  console.error('Heartbeat failed:', error)
+  // May trigger rejoin
+})
+```
+
+### Consumer Pattern: Decoupled Processing
+
+```typescript
+const stream = await consumer.consume({ topics: ['orders'] })
+
+// Fetch and process independently to avoid poll timeout
+const messageQueue = []
+const BATCH_SIZE = 100
+
+// Consumer thread: fetch messages
+const consumeTask = async () => {
+  for await (const message of stream) {
+    messageQueue.push(message)
+    // Triggers rebalance event if needed, but doesn't block processing
+  }
+}
+
+// Processor thread: process at own pace
+const processTask = async () => {
+  while (true) {
+    if (messageQueue.length === 0) {
+      await new Promise(resolve => setTimeout(resolve, 100))
+      continue
+    }
+
+    const batch = messageQueue.splice(0, BATCH_SIZE)
+
+    try {
+      await Promise.all(batch.map(msg => processOrder(msg)))
+      
+      // Commit after successful batch
+      await consumer.commitSync()
+    } catch (error) {
+      console.error('Batch processing failed:', error)
+      // Don't commit - will retry from last offset on restart
+    }
+  }
+}
+
+await Promise.all([consumeTask(), processTask()])
+```
+
+### Graceful Shutdown
+
+```typescript
+let stream: any
+
+async function startConsumer() {
+  stream = await consumer.consume({ topics: ['orders'] })
+
+  for await (const message of stream) {
+    await processOrder(message)
+  }
+}
+
+process.on('SIGTERM', async () => {
+  console.log('Graceful shutdown initiated...')
+
+  // Close stream (stops new messages)
+  await stream?.close()
+
+  // Leave group explicitly (fast, doesn't wait for timeout)
+  await consumer.leaveGroup()
+
+  // Close consumer
+  await consumer.close()
+
+  process.exit(0)
+})
+
+process.on('SIGINT', () => process.exit(0))
+
+startConsumer().catch(err => {
+  console.error('Fatal consumer error:', err)
+  process.exit(1)
+})
+```
+
+### Error Handling & Retry
+
+```typescript
+const MAX_RETRIES = 3
+const RETRY_DELAY_MS = 1000
+
+async function processOrderWithRetry(message) {
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const order = JSON.parse(message.value?.toString() || '{}')
+      
+      // Business logic
+      await createOrder(order)
+      return true
+      
+    } catch (error) {
+      if (attempt === MAX_RETRIES) {
+        console.error(`Order processing failed after ${MAX_RETRIES} retries:`, error)
+        // Send to dead-letter queue
+        await deadLetterQueue.send({ value: message.value, error: error.message })
+        return false
+      }
+      
+      // Exponential backoff
+      await new Promise(resolve => 
+        setTimeout(resolve, RETRY_DELAY_MS * Math.pow(2, attempt - 1))
+      )
+    }
+  }
+}
+
+// In consume loop
+for await (const message of stream) {
+  const success = await processOrderWithRetry(message)
+  if (success) {
+    await consumer.commitSync()
+  }
+}
+```
+
+### Lag Monitoring
+
+```typescript
+consumer.startLagMonitoring({ topics: ['orders'] }, 60000) // Every 60s
+
+consumer.on('consumer:lag', (lagOffsets) => {
+  let totalLag = 0
+  for (const lags of Object.values(lagOffsets)) {
+    totalLag += lags.reduce((a: number, b: number) => a + b, 0)
+  }
+  
+  console.log(`Consumer lag: ${totalLag} messages`)
+  
+  if (totalLag > 10000) {
+    console.warn('ALERT: Consumer falling behind (lag > 10K)')
+    // Trigger scaling, alert ops
+  }
+})
+
+consumer.on('consumer:lag:error', (error) => {
+  console.error('Lag calculation failed:', error)
+})
+```
+
+## KafkaJS - Production Patterns
+
+### Setup & Configuration
+
+```typescript
+import { Kafka } from 'kafkajs'
+
+const kafka = new Kafka({
+  clientId: 'order-processor-v1',
+  brokers: ['kafka1:9092', 'kafka2:9092', 'kafka3:9092'],
+})
+
+const consumer = kafka.consumer({
+  groupId: 'order-processors',
+  
+  // Rebalancing
+  protocol: ['cooperative-sticky'],  // Try this first, fallback to others if unsupported
+  sessionTimeout: 10000,
+  heartbeatInterval: 3000,
+  rebalanceTimeout: 60000,
+  
+  // Performance
+  maxBytesPerPartition: 1048576,
+
+  // Retry
+  retry: {
+    initialRetryTime: 100,
+    retries: 8,
+    maxRetryTime: 30000,
+    multiplier: 2,
+    randomizationFactor: 0.2,
+  },
+})
+```
+
+### Consumer Pattern with Rebalance Awareness
+
+```typescript
+await consumer.subscribe({
+  topic: 'orders',
+  fromBeginning: false,
+})
+
+await consumer.run({
+  eachBatch: async ({ batch, resolveOffset, heartbeat, isRunning, isStale }) => {
+    const messages = batch.messages
+
+    for (let i = 0; i < messages.length; i += 50) {
+      // Stop if rebalance signaled or partition revoked
+      if (!isRunning() || isStale()) {
+        console.log('Rebalance signal detected, stopping batch')
+        break
+      }
+
+      const chunk = messages.slice(i, i + 50)
+
+      try {
+        // Process chunk with concurrency control
+        await Promise.all(chunk.map(msg => processOrder(msg)))
+
+        // Update offset
+        if (messages[i + 49]) {
+          resolveOffset(messages[i + 49].offset)
+        }
+
+        // Keep heartbeat alive during processing
+        await heartbeat()
+
+      } catch (error) {
+        console.error('Batch processing error:', error)
+        // Don't resolve offset - will retry from last committed
+        // Heartbeat to stay alive in group
+        await heartbeat()
+      }
+    }
+  },
+})
+```
+
+### Graceful Shutdown with Manual Offset Commit
+
+```typescript
+let isShuttingDown = false
+
+const consumer = kafka.consumer({ groupId: 'order-processors' })
+
+await consumer.subscribe({ topic: 'orders' })
+
+await consumer.run({
+  eachMessage: async ({ topic, partition, message }) => {
+    if (isShuttingDown) {
+      console.log('Shutdown in progress, stopping')
+      return
+    }
+
+    try {
+      const order = JSON.parse(message.value?.toString() || '{}')
+      await createOrder(order)
+
+      // Manual commit after success
+      await consumer.commitOffsets([
+        {
+          topic,
+          partition,
+          offset: (Number(message.offset) + 1).toString(),
+        },
+      ])
+
+    } catch (error) {
+      console.error('Order processing failed:', error)
+      // Don't commit - will retry on restart
+    }
+  },
+})
+
+process.on('SIGTERM', async () => {
+  console.log('Shutdown: stopping consumption')
+  isShuttingDown = true
+
+  // Disconnect (sends LeaveGroup), doesn't wait for long timeouts
+  await consumer.disconnect()
+
+  process.exit(0)
+})
+```
+
+### Error Handling with Topic Routing
+
+```typescript
+const deadLetterTopic = 'orders-dlq'
+
+await consumer.run({
+  eachMessage: async ({ topic, partition, message }) => {
+    try {
+      const order = JSON.parse(message.value?.toString() || '{}')
+      
+      // Validation
+      if (!order.id || !order.customerId) {
+        throw new Error('Invalid order: missing id or customerId')
+      }
+
+      await createOrder(order)
+
+    } catch (error) {
+      console.error(`Error processing message from partition ${partition}:`, error)
+
+      // Send to dead-letter queue for manual inspection
+      await producer.send({
+        topic: deadLetterTopic,
+        messages: [
+          {
+            key: message.key,
+            value: JSON.stringify({
+              originalTopic: topic,
+              originalOffset: message.offset,
+              originalMessage: message.value?.toString(),
+              error: error.message,
+              timestamp: new Date().toISOString(),
+            }),
+          },
+        ],
+      })
+    }
+  },
+})
+```
+
+## Common Mistakes & Solutions
+
+### Mistake 1: Slow Processing Causing Poll Timeout
+
+```typescript
+// ❌ WRONG: Process inside poll loop - risks max.poll.interval.ms timeout
+await consumer.run({
+  eachMessage: async ({ message }) => {
+    await slowDatabaseWrite(message) // 5 minutes → TIMEOUT!
+  },
+})
+
+// ✅ CORRECT: Decouple fetching from processing
+const messageQueue = []
+
+// Fetch quickly
+for await (const message of stream) {
+  messageQueue.push(message)
+}
+
+// Process at own pace
+for (const message of messageQueue) {
+  await slowDatabaseWrite(message)
+}
+```
+
+### Mistake 2: Not Handling Rebalance Events
+
+```typescript
+// ❌ WRONG: No rebalance handling - may lose offsets on shutdown
+const stream = await consumer.consume({ topics: ['orders'] })
+for await (const message of stream) {
+  await processOrder(message)
+  // If rebalance happens, uncommitted offsets lost
+}
+
+// ✅ CORRECT: Handle rebalance events
+consumer.on('consumer:group:rejoin', () => {
+  console.log('Rebalance starting - finalizing current batch')
+  // Stop accepting new messages, wait for in-flight to complete
+})
+
+for await (const message of stream) {
+  await processOrder(message)
+  await consumer.commitSync() // Explicit commit
+}
+```
+
+### Mistake 3: Ignoring Lag Growth
+
+```typescript
+// ❌ WRONG: No lag monitoring - miss scaling needs
+const consumer = new Consumer({ groupId: 'orders' })
+// ... consuming, but no idea if consumer falling behind
+
+// ✅ CORRECT: Monitor lag continuously
+consumer.startLagMonitoring({ topics: ['orders'] }, 60000)
+
+consumer.on('consumer:lag', (allLags) => {
+  let totalLag = 0
+  for (const lags of Object.values(allLags)) {
+    totalLag += lags.reduce((a: number, b: number) => a + b, 0)
+  }
+  
+  if (totalLag > THRESHOLD) {
+    // Scale: deploy more consumer instances
+    logger.warn('Consumer lag critical, scaling needed')
+  }
+})
+```
+
+## Configuration Tuning for Your Workload
+
+### High-Volume, Low-Latency (Real-time)
+
+```typescript
+// @platformatic/kafka
+{
+  partitionAssignmentStrategy: 'cooperativeSticky',
+  sessionTimeout: 10000,
+  heartbeatInterval: 3000,
+  maxWaitTime: 500,             // Don't wait long for data
+}
+
+// KafkaJS
+{
+  protocol: ['cooperative-sticky'],
+  sessionTimeout: 10000,
+  heartbeatInterval: 3000,
+  maxBytesPerPartition: 10485760,
+}
+```
+
+### Batch Processing (Minutes Scale)
+
+```typescript
+// @platformatic/kafka
+{
+  maxWaitTime: 30000,           // Wait longer to batch
+  autocommit: false,            // Commit after batch
+}
+
+// KafkaJS: use eachBatch for efficiency
+{
+  eachBatch: async ({ batch, resolveOffset }) => {
+    await processBatch(batch.messages)
+    resolveOffset(batch.messages[batch.messages.length - 1].offset)
+  }
+}
+```
+
+### Heavy Processing (Database Writes)
+
+```typescript
+// Increase max.poll.interval.ms to accommodate slow processing
+// Use separate queue for processing (don't block fetch)
+// Set higher max.in.flight to buffer messages
+
+// @platformatic/kafka: decouples automatically with streams
+
+// KafkaJS: use eachBatch with heartbeat() calls
+{
+  eachBatch: async ({ batch, heartbeat }) => {
+    for (const message of batch.messages) {
+      await heavyProcessing(message)
+      await heartbeat()  // Keep alive during processing
+    }
+  }
+}
+```
+
+## Production Checklist
+
+- [ ] Configured `partitionAssignmentStrategy: 'cooperativeSticky'` (or equivalent)
+- [ ] Set `sessionTimeout: 10000`, `heartbeatInterval: 3000`
+- [ ] Set `max.poll.interval.ms` >= 2x your max processing time
+- [ ] Implement rebalance listeners (onPartitionsRevoked, onPartitionsAssigned)
+- [ ] Call `commitSync()` or `resolveOffset()` after successful processing
+- [ ] Implement graceful shutdown (LeaveGroup on SIGTERM)
+- [ ] Monitor consumer lag (alert if > threshold)
+- [ ] Handle DeserializationException and route to DLQ
+- [ ] Set resource limits (memory, CPU) on consumer containers
+- [ ] Test rebalancing scenarios (rolling restart, scale up/down)
+
+## Sources
+
+- [@platformatic/kafka Documentation](https://docs.platformatic.dev/docs/packages/db/package-reference/pkg-kafka) (Retrieved: 2026-02-17)
+- [KafkaJS Documentation](https://kafka.js.org/) (Retrieved: 2026-02-17)
+- [Apache Kafka Consumer Configuration](https://kafka.apache.org/documentation/#consumerconfigs) (Retrieved: 2026-02-17)
+- [Confluent Docs - Kafka Consumer Design](https://docs.confluent.io/kafka/design/consumer-design.html) (Retrieved: 2026-02-17)
+

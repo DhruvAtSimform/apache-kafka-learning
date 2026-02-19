@@ -270,14 +270,14 @@ async function consumeMultipleTopics() {
     clientId: `${KAFKA_CONFIG.clientId}-multi`,
     bootstrapBrokers: KAFKA_CONFIG.brokers,
     groupId: `${KAFKA_CONFIG.groupId}-multi`,
-    groupProtocol: "classic",
+    groupProtocol: "consumer",
     deserializers: {
       key: stringDeserializers.key,
       value: bufferDeserializer,
       headerKey: stringDeserializers.headerKey,
       headerValue: stringDeserializers.headerValue,
-    },
-  });
+    }});
+
 
   const stream = await consumer.consume({
     topics: ["notifications", "user-events", "orders", "products"],
