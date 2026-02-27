@@ -1389,6 +1389,416 @@ A: Avro uses reader schema (consumer) and writer schema (producer). Schema Regis
 - [Confluent Docs - Kafka Consumer Design](https://docs.confluent.io/kafka/design/consumer-design.html) (Retrieved: 2026-02-11)
 - [Kafka Consumer Configuration](https://kafka.apache.org/documentation/#consumerconfigs) (Retrieved: 2026-02-11)
 - [Confluent Schema Registry Documentation](https://docs.confluent.io/platform/current/schema-registry/index.html) (Retrieved: 2026-02-11)
+
+---
+
+# Kafka Journal — Kafka Connect Source and Sink (Date: 2026-02-26)
+
+## TL;DR
+
+- Kafka Connect moves data **into Kafka** using Source connectors and **out of Kafka** using Sink connectors.
+- It scales using connector tasks and workers, with standalone mode for dev and distributed mode for production.
+- Connect is best for integration plumbing (databases, object stores, search systems), while business logic should stay in apps/Streams.
+- In Node.js, `@confluentinc/kafka-javascript` typically produces/consumes topics that Connect also reads/writes.
+
+## Why this matters
+
+Without Connect, teams often write and maintain many custom ingestion/export services. Connect reduces this operational burden and gives standardized, restartable, scalable data movement.
+
+## Versions & Scope
+
+- Applies to Kafka 3.x.x and 4.x.x clusters in KRaft mode.
+- Connect remains an external runtime component (workers) and still stores its internal state in Kafka topics.
+- ZooKeeper is not required for modern Kafka clusters; legacy ZooKeeper-era deployments mainly affect older operational playbooks.
+
+## Core Concepts
+
+- **Source Connector**: Pulls data from external systems (for example DB/CDC, logs, metrics) and writes to Kafka topics.
+- **Sink Connector**: Reads Kafka topics and writes to external systems (for example Elasticsearch, S3, warehouses).
+- **Connector vs Task**: Connector is the logical job; tasks are parallel workers doing actual copy work.
+- **Workers**:
+  - Standalone: one process, simple dev use.
+  - Distributed: multiple processes with shared `group.id`, automatic rebalance/failover.
+- **Converters**: Handle serialization boundaries (`AvroConverter`, `JsonConverter`, etc.); critical for schema consistency.
+- **SMT (Single Message Transforms)**: Lightweight per-record transforms; for heavy multi-record logic use Streams/ksqlDB.
+
+## Configuration Examples
+
+### 1) Distributed Connect Worker (minimal)
+
+```properties
+bootstrap.servers=localhost:9092
+group.id=connect-cluster
+key.converter=ogr.apache.kafka.connect.storage.StringConverter
+value.converter=org.apache.kafka.connect.json.JsonConverter
+value.converter.schemas.enable=false
+
+config.storage.topic=_connect-configs
+offset.storage.topic=_connect-offsets
+status.storage.topic=_connect-status
+
+config.storage.replication.factor=3
+offset.storage.replication.factor=3
+status.storage.replication.factor=3
+```
+
+Why: these internal topics store connector configs, offsets, and status for fault tolerance.
+
+### 2) Source connector (example shape)
+
+```json
+{
+  "name": "inventory-source",
+  "config": {
+    "connector.class": "io.confluent.connect.jdbc.JdbcSourceConnector",
+    "tasks.max": "2",
+    "connection.url": "jdbc:postgresql://db:5432/app",
+    "connection.user": "app",
+    "connection.password": "secret",
+    "mode": "incrementing",
+    "incrementing.column.name": "id",
+    "topic.prefix": "src.inventory."
+  }
+}
+```
+
+Why: demonstrates a source job that incrementally ingests DB rows to Kafka topics.
+
+### 3) Sink connector with DLQ basics
+
+```json
+{
+  "name": "orders-sink",
+  "config": {
+    "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector",
+    "tasks.max": "3",
+    "topics": "orders.events",
+    "errors.tolerance": "all",
+    "errors.deadletterqueue.topic.name": "orders.events.dlq",
+    "errors.deadletterqueue.context.headers.enable": "true"
+  }
+}
+```
+
+Why: DLQ for sink connectors helps keep pipelines running while capturing bad records.
+
+## Real-World Example
+
+**Retail pipeline**:
+
+1. PostgreSQL order changes → JDBC Source Connector → `orders.raw` topic.
+2. Node.js service (`@confluentinc/kafka-javascript`) consumes `orders.raw`, enriches with pricing service, produces `orders.enriched`.
+3. Elasticsearch Sink Connector indexes `orders.enriched` for customer support search.
+4. Bad sink records go to `orders.enriched.dlq` for remediation.
+
+This keeps integration concerns in Connect and business logic in application code.
+
+### Node.js integration sketch (`@confluentinc/kafka-javascript`)
+
+```ts
+import { Kafka } from "@confluentinc/kafka-javascript";
+
+const kafka = new Kafka({ "bootstrap.servers": "localhost:9092" });
+const consumer = kafka.consumer({
+  "group.id": "enrichment-service",
+  "enable.auto.commit": false,
+});
+const producer = kafka.producer({ "bootstrap.servers": "localhost:9092" });
+
+await producer.connect();
+await consumer.connect();
+await consumer.subscribe({ topics: ["orders.raw"] });
+
+consumer.run({
+  eachMessage: async ({ topic, partition, message }) => {
+    const enriched = enrichOrder(JSON.parse(message.value.toString()));
+
+    await producer.send({
+      topic: "orders.enriched",
+      messages: [{ key: message.key, value: JSON.stringify(enriched) }],
+    });
+
+    await consumer.commitOffsets([
+      { topic, partition, offset: (BigInt(message.offset) + 1n).toString() },
+    ]);
+  },
+});
+```
+
+## Migration / Legacy Notes (if applicable)
+
+- Connect architecture (workers/connectors/tasks) is consistent across Kafka 3.x and 4.x.
+- Legacy ZooKeeper-based clusters primarily differ in cluster metadata mode, not in Source/Sink connector fundamentals.
+
+## QnA
+
+**Q1: Source vs Sink in one line?**  
+A: Source pulls external data into Kafka; Sink pushes Kafka data outward.
+
+**Q2: When to increase `tasks.max`?**  
+A: When connector/plugin and source/sink system support parallelism and you need higher throughput.
+
+**Q3: Are SMTs enough for heavy enrichment?**  
+A: Usually no; SMTs are lightweight per-record transforms, not complex business workflows.
+
+**Q4: Does Connect replace Node services?**  
+A: It replaces boilerplate integration code, but your Node services still handle custom logic and APIs.
+
+## Sources
+
+- [Confluent Platform Docs — Kafka Connect Overview](https://docs.confluent.io/platform/current/connect/index.html) (Retrieved: 2026-02-26)
+- [Confluent Platform Docs — Kafka Connect Concepts](https://docs.confluent.io/platform/current/connect/concepts.html) (Retrieved: 2026-02-26)
+- [Apache Kafka Docs — Connect API](https://kafka.apache.org/documentation/#connectapi) (Retrieved: 2026-02-26)
+- [Confluent JavaScript Client Overview](https://docs.confluent.io/kafka-clients/javascript/current/overview.html) (Retrieved: 2026-02-26)
+
+---
+
+# Kafka Journal — Kafka Streams and Real-Time Processing with Constraints (Date: 2026-02-26)
+
+## TL;DR
+
+- Kafka Streams is a Java library for real-time stream processing (stateless + stateful) on Kafka topics.
+- It supports at-least-once and exactly-once (`exactly_once_v2`) processing guarantees.
+- Major constraints are partition-driven parallelism, event-time/late-event handling trade-offs, and state-store resource costs.
+- Node.js services typically integrate **around** Streams apps by producing input topics and consuming output topics.
+
+## Why this matters
+
+Real-time features like fraud checks, rolling metrics, and live dashboards need low-latency processing with correct handling of out-of-order events.
+
+## Versions & Scope
+
+- Applies to Kafka 3.x.x and 4.x.x, KRaft clusters.
+- Kafka Streams client model remains the same conceptually; KRaft affects broker metadata management, not Streams DSL fundamentals.
+- ZooKeeper note: only legacy cluster operation difference; Streams app design patterns remain essentially unchanged.
+
+## Core Concepts
+
+- **Topology**: Directed graph of processors (source processors, operators, sink processors).
+- **Partition-bound parallelism**: Max effective parallelism is bounded by input topic partitions.
+- **Stateful ops**: Joins, aggregations, windows use local state stores (often RocksDB) + changelog topics.
+- **Time model**: Event time, processing time, ingestion time; windows often depend on event-time timestamps.
+- **Late/out-of-order data**: Configure grace periods; records arriving after window close + grace are dropped for that window.
+- **Guarantees**:
+  - Default `at_least_once`.
+  - `exactly_once_v2` for stronger correctness with transactional semantics.
+
+## Configuration Examples
+
+### 1) Streams reliability profile
+
+```properties
+application.id=fraud-detection-v1
+bootstrap.servers=localhost:9092
+processing.guarantee=exactly_once_v2
+num.stream.threads=2
+commit.interval.ms=100
+```
+
+Why: balanced baseline for production-grade correctness and parallelism.
+
+### 2) Windowing with grace period (conceptual)
+
+```java
+stream
+  .groupByKey()
+  .windowedBy(TimeWindows.ofSizeWithNoGrace(Duration.ofMinutes(5)))
+  .count();
+```
+
+Why: strict no-late-event behavior for cases where correctness requires hard cutoffs.
+
+⚠️ Unverified: exact API combinations for grace/no-grace differ slightly by Kafka Streams version and should be checked against your project’s Streams Javadocs.
+
+## Real-World Example
+
+**Card fraud pipeline**:
+
+1. Node.js API (`@confluentinc/kafka-javascript`) writes card swipes to `payments.raw`.
+2. Kafka Streams app computes per-card velocity in 1-minute windows and joins with risk profile table.
+3. Streams writes risk-scored events to `payments.scored`.
+4. Node.js alerting service consumes `payments.scored` and triggers user notifications.
+
+This splits responsibilities cleanly: Node for APIs/notifications, Streams for high-throughput stateful analytics.
+
+### Node.js integration sketch (`@confluentinc/kafka-javascript`)
+
+```ts
+import { Kafka } from "@confluentinc/kafka-javascript";
+
+const producer = new Kafka({ "bootstrap.servers": "localhost:9092" }).producer(
+  {},
+);
+const consumer = new Kafka({ "bootstrap.servers": "localhost:9092" }).consumer({
+  "group.id": "alerts-service",
+});
+
+await producer.connect();
+await producer.send({
+  topic: "payments.raw",
+  messages: [
+    { key: "card-42", value: JSON.stringify({ amount: 120, ts: Date.now() }) },
+  ],
+});
+
+await consumer.connect();
+await consumer.subscribe({ topics: ["payments.scored"] });
+consumer.run({
+  eachMessage: async ({ message }) =>
+    handleAlert(JSON.parse(message.value.toString())),
+});
+```
+
+## Migration / Legacy Notes (if applicable)
+
+- Kafka Streams remains a JVM library; there is no official Node.js Kafka Streams equivalent from Apache Kafka.
+- For Node-centric teams, common pattern is: Node services + Kafka Streams microservice (Java) + shared topics/contracts.
+
+## QnA
+
+**Q1: Can Kafka Streams run inside the broker?**  
+A: No, it runs as a separate client application instance.
+
+**Q2: What is the biggest scaling limit?**  
+A: Input topic partition count bounds practical parallelism.
+
+**Q3: Why do late events matter?**  
+A: They can change aggregates/join outcomes; grace periods trade latency for correctness.
+
+**Q4: When should I choose EOS?**  
+A: For stateful critical pipelines where duplicates or missing outputs are unacceptable.
+
+## Sources
+
+- [Confluent Platform Docs — Kafka Streams Concepts](https://docs.confluent.io/platform/current/streams/concepts.html) (Retrieved: 2026-02-26)
+- [Confluent Platform Docs — Kafka Streams Architecture](https://docs.confluent.io/platform/current/streams/architecture.html) (Retrieved: 2026-02-26)
+- [Apache Kafka 4.0 Javadocs — org.apache.kafka.streams](https://kafka.apache.org/40/javadoc/org/apache/kafka/streams/package-summary.html) (Retrieved: 2026-02-26)
+- [Confluent JavaScript Client Overview](https://docs.confluent.io/kafka-clients/javascript/current/overview.html) (Retrieved: 2026-02-26)
+
+---
+
+# Kafka Journal — Kafka Schema Registry and Avro (Date: 2026-02-26)
+
+## TL;DR
+
+- Schema Registry centralizes schemas (Avro/Protobuf/JSON Schema), compatibility checks, and schema versioning.
+- With Avro, producers/consumers share a strict data contract and evolve safely over time.
+- Kafka Connect and many client ecosystems integrate via converters/serdes with Schema Registry.
+- In Node.js, `@confluentinc/kafka-javascript` is used for Kafka IO, while schema operations are typically handled via Schema Registry APIs/tooling.
+
+## Why this matters
+
+As teams scale, schema drift becomes a major source of outages. Schema Registry prevents accidental contract breaks before bad events spread across services.
+
+## Versions & Scope
+
+- Applies to Kafka 3.x.x and 4.x.x ecosystems (KRaft clusters).
+- Schema Registry is a separate service (Confluent Platform/Cloud feature set), not a broker-internal KRaft component.
+- ZooKeeper relevance is legacy-only at cluster level; schema contract workflows stay the same.
+
+## Core Concepts
+
+- **Subject**: Logical name under which schema versions are registered (often topic-value/topic-key strategy).
+- **Schema ID**: Numeric ID used on the wire to avoid sending full schema every message.
+- **Compatibility**: Rules such as backward/forward/full to enforce safe evolution.
+- **Avro basics**: Typed fields, optional defaults, schema evolution support.
+- **Connect integration**: `AvroConverter` works with Schema Registry for source/sink pipelines.
+
+## Configuration Examples
+
+### 1) Kafka Connect Avro converter + Schema Registry
+
+```properties
+key.converter=io.confluent.connect.avro.AvroConverter
+key.converter.schema.registry.url=http://schema-registry:8081
+value.converter=io.confluent.connect.avro.AvroConverter
+value.converter.schema.registry.url=http://schema-registry:8081
+```
+
+Why: enforces contracts and uses schema IDs instead of embedding full schema each record.
+
+### 2) Example Avro schema (order event)
+
+```json
+{
+  "type": "record",
+  "name": "OrderCreated",
+  "namespace": "com.acme.orders",
+  "fields": [
+    { "name": "orderId", "type": "string" },
+    { "name": "customerId", "type": "string" },
+    { "name": "amount", "type": "double" },
+    { "name": "currency", "type": "string", "default": "USD" }
+  ]
+}
+```
+
+Why: adding fields with defaults is a common backward-compatible evolution pattern.
+
+### 3) Node.js producer shape with Avro-encoded payload bytes
+
+```ts
+import { Kafka } from "@confluentinc/kafka-javascript";
+
+const producer = new Kafka({ "bootstrap.servers": "localhost:9092" }).producer(
+  {},
+);
+await producer.connect();
+
+const payload: Buffer = await encodeWithSchemaRegistry("orders-value", {
+  orderId: "o-1001",
+  customerId: "c-77",
+  amount: 499.0,
+  currency: "USD",
+});
+
+await producer.send({
+  topic: "orders.avro",
+  messages: [{ key: "o-1001", value: payload }],
+});
+```
+
+`encodeWithSchemaRegistry` represents your schema-registry serialization path (library or REST-based wrapper).
+
+⚠️ Unverified: a first-party official Node.js Schema Registry serializer package name from Confluent is not confirmed in these retrieved docs; verify your preferred package and compatibility mode before implementation.
+
+## Real-World Example
+
+**Order platform with multiple teams**:
+
+1. Checkout service publishes `OrderCreated` events in Avro.
+2. Registry enforces compatibility when schema evolves (for example adding `promoCode` with default).
+3. Billing team consumes older and newer versions without immediate coordinated deploy.
+4. Connect sink writes validated Avro data into analytics storage.
+
+Result: safer independent releases and fewer contract-breaking incidents.
+
+## Migration / Legacy Notes (if applicable)
+
+- Teams moving from plain JSON often adopt Schema Registry + Avro first for high-value domains (orders/payments) before expanding globally.
+- Legacy consumers that parse schemaless JSON usually need migration adapters when switching to registry-backed Avro topics.
+
+## QnA
+
+**Q1: Why not just keep JSON everywhere?**  
+A: JSON is flexible but weak for strict contracts/evolution; Registry adds enforcement and compatibility checks.
+
+**Q2: What does schema ID buy me?**  
+A: Smaller wire payloads and fast schema lookup/validation.
+
+**Q3: Is Schema Registry only for Avro?**  
+A: No, it also supports Protobuf and JSON Schema.
+
+**Q4: Does KRaft replace Schema Registry?**  
+A: No, KRaft handles Kafka metadata; Schema Registry manages data contracts.
+
+## Sources
+
+- [Confluent Platform Docs — Schema Registry Overview](https://docs.confluent.io/platform/current/schema-registry/index.html) (Retrieved: 2026-02-26)
+- [Confluent Platform Docs — Schema Evolution & Compatibility](https://docs.confluent.io/platform/current/schema-registry/fundamentals/schema-evolution.html) (Retrieved: 2026-02-26)
+- [Confluent Platform Docs — Formats, Serializers, and Deserializers](https://docs.confluent.io/platform/current/schema-registry/fundamentals/serdes-develop/index.html) (Retrieved: 2026-02-26)
+- [Confluent JavaScript Client Overview](https://docs.confluent.io/kafka-clients/javascript/current/overview.html) (Retrieved: 2026-02-26)
+
 - [Kafka 4.0 Consumer Rebalance Protocol](https://docs.confluent.io/kafka/design/consumer-design.html#consumer-rebalance-protocols-and-partition-assignments) (Retrieved: 2026-02-11)
 
 ---
@@ -4741,3 +5151,729 @@ consumer.on("consumer:lag", (allLags) => {
 - [KafkaJS Documentation](https://kafka.js.org/) (Retrieved: 2026-02-17)
 - [Apache Kafka Consumer Configuration](https://kafka.apache.org/documentation/#consumerconfigs) (Retrieved: 2026-02-17)
 - [Confluent Docs - Kafka Consumer Design](https://docs.confluent.io/kafka/design/consumer-design.html) (Retrieved: 2026-02-17)
+
+---
+
+# Kafka Journal — Topic Configuration (Date: 2026-02-27)
+
+## TL;DR
+
+- Topic-level configs override broker defaults for individual topics, enabling fine-grained control.
+- The most critical configs are retention (`retention.ms`, `retention.bytes`), replication (`replication.factor`, `min.insync.replicas`), segment size (`segment.bytes`), and cleanup policy (`cleanup.policy`).
+- Topic configs can be set at creation time or altered dynamically without restarting the cluster.
+- In KRaft mode, topic metadata (including configs) is managed via the controller quorum in the `__cluster_metadata` log.
+
+## Why this matters
+
+One-size-fits-all broker defaults are rarely optimal. A high-volume audit log topic needs different retention than a real-time events topic used for stream processing. Topic configs let you tune each topic independently without cluster-wide changes.
+
+## Versions & Scope
+
+- Applies to Kafka 3.x.x and 4.x.x (KRaft mode).
+- Dynamic config alteration (`kafka-configs.sh --alter`) works the same in both.
+- KRaft stores topic configs in the metadata log; propagation is faster than ZooKeeper-based clusters.
+
+## Core Concepts
+
+### Retention Configs
+
+Control how long or how much data Kafka keeps per partition:
+
+| Config | Default | Description |
+|---|---|---|
+| `retention.ms` | `604800000` (7 days) | Retain events for this duration |
+| `retention.bytes` | `-1` (unlimited) | Max bytes retained per partition |
+| `log.retention.check.interval.ms` | `300000` (5 min) | How often broker checks for segments to delete |
+
+Both can be combined: whichever limit is hit first triggers deletion.
+
+### Segment Configs
+
+Each partition log is divided into segment files. Older segments are candidates for cleanup:
+
+| Config | Default | Description |
+|---|---|---|
+| `segment.bytes` | `1073741824` (1 GB) | Max size per segment file before rolling |
+| `segment.ms` | `604800000` (7 days) | Roll a new segment after this time even if not full |
+| `segment.index.bytes` | `10485760` (10 MB) | Max size of offset index per segment |
+
+### Replication and Durability Configs
+
+| Config | Default | Description |
+|---|---|---|
+| `replication.factor` | Broker `default.replication.factor` | How many copies of each partition |
+| `min.insync.replicas` | `1` | Min replicas that must ack writes (used with `acks=all`) |
+| `unclean.leader.election.enable` | `false` | Allow out-of-sync replica to become leader |
+
+### Other Important Configs
+
+| Config | Default | Description |
+|---|---|---|
+| `cleanup.policy` | `delete` | `delete`, `compact`, or `delete,compact` |
+| `max.message.bytes` | `1048588` (~1 MB) | Max size of a single message for this topic |
+| `compression.type` | `producer` | Broker-side compression (`none`, `gzip`, `snappy`, `lz4`, `zstd`, `producer`) |
+| `message.timestamp.type` | `CreateTime` | Use producer timestamp or broker log-append time |
+
+## Configuration Examples
+
+### Create Topic with Custom Configs
+
+```bash
+kafka-topics.sh --create \
+  --bootstrap-server localhost:9092 \
+  --topic payments \
+  --partitions 12 \
+  --replication-factor 3 \
+  --config retention.ms=86400000 \
+  --config min.insync.replicas=2 \
+  --config max.message.bytes=2097152
+```
+
+### Alter Topic Config Dynamically (no restart needed)
+
+```bash
+# Change retention to 3 days for an existing topic
+kafka-configs.sh --bootstrap-server localhost:9092 \
+  --entity-type topics \
+  --entity-name payments \
+  --alter \
+  --add-config retention.ms=259200000,min.insync.replicas=2
+```
+
+### Describe Current Topic Configs
+
+```bash
+kafka-configs.sh --bootstrap-server localhost:9092 \
+  --entity-type topics \
+  --entity-name payments \
+  --describe
+```
+
+### Topic Config in Properties (for IaC tools / AdminClient)
+
+```properties
+# Topic-level overrides (applied via AdminClient or kafka-configs.sh)
+retention.ms=86400000          # 1 day
+retention.bytes=5368709120     # 5 GB per partition cap
+segment.bytes=536870912        # 512 MB segments
+min.insync.replicas=2
+cleanup.policy=delete
+compression.type=lz4
+```
+
+## Real-World Example
+
+**Multi-topic pipeline with different retention needs**:
+
+| Topic | Config | Why |
+|---|---|---|
+| `clickstream-raw` | 1 day, 10 GB cap | High volume, short-lived, feeds downstream processing |
+| `payment-events` | 90 days | Compliance / audit requirement |
+| `user-profiles` | `compact` only | Latest state per user, no time limit |
+| `dead-letter` | 7 days | Manual inspection window before discard |
+
+Each topic created with its own config overrides while sharing the same cluster.
+
+## Migration / Legacy Notes
+
+- **ZooKeeper mode**: Topic configs stored in ZooKeeper znodes; altered via `kafka-configs.sh` which wrote directly to ZooKeeper.
+- **KRaft mode**: Topic configs stored in `__cluster_metadata` internal log; `kafka-configs.sh` sends a request to the active controller which appends to the log. Faster propagation to all brokers.
+- `kafka-topics.sh --alter` (to change partition count) is separate from `kafka-configs.sh --alter` (to change topic properties).
+
+## QnA
+
+**Q1: What happens when both `retention.ms` and `retention.bytes` are set?**
+A: Each condition is checked independently. If either threshold is met, the oldest closed segments are eligible for deletion.
+
+**Q2: Can I set `min.insync.replicas` higher than `replication.factor`?**
+A: No. Producers would get `NotEnoughReplicasException` on every write. `min.insync.replicas` must always be ≤ `replication.factor`. Recommended: `min.insync.replicas = replication.factor - 1`.
+
+**Q3: Does changing topic config require a rolling restart?**
+A: No. Topic configs (retention, segment size, etc.) are dynamic and take effect within the next log cleanup check interval without any restart.
+
+**Q4: What does `compression.type=producer` mean at the topic level?**
+A: The broker preserves whatever compression the producer used. Setting it explicitly (e.g., `gzip`) would re-compress server-side, which is CPU-intensive. `producer` is usually best for throughput.
+
+**Q5: How do I reset a topic config override back to the broker default?**
+A: Use `--delete-config`: `kafka-configs.sh --alter --delete-config retention.ms --entity-name my-topic`. The broker default then applies.
+
+## Sources
+
+- [Apache Kafka Docs — Topic Configuration](https://kafka.apache.org/documentation/#topicconfigs) (Retrieved: 2026-02-27)
+- [Confluent Docs — Topic Configuration Overview](https://docs.confluent.io/kafka/operations-tools/topic-operations.html) (Retrieved: 2026-02-27)
+- [Apache Kafka Docs — Broker Configuration](https://kafka.apache.org/documentation/#brokerconfigs) (Retrieved: 2026-02-27)
+
+---
+
+# Kafka Journal — Topic Segments and Indexes (Date: 2026-02-27)
+
+## TL;DR
+
+- Each partition is physically stored as a series of **segment files** on disk, not a single giant file.
+- Every segment has companion **index files** (offset index and time index) enabling near-constant-time lookups without scanning the full log.
+- Kafka only writes to the **active segment** (the newest); older segments are immutable and eligible for cleanup.
+- Understanding segments is key to tuning disk usage, cleanup efficiency, and read latency.
+
+## Why this matters
+
+Segments and indexes are the reason Kafka can serve specific offsets (e.g., replay from offset 5000) and time-based seeks (e.g., "give me events from the last 30 minutes") efficiently — even across terabytes of data.
+
+## Versions & Scope
+
+- Applies to Kafka 3.x.x and 4.x.x (KRaft mode).
+- Segment and index file mechanics unchanged across versions.
+- KRaft does not change the on-disk format of topic partition logs.
+
+## Core Concepts
+
+### Segment Files
+
+Each partition on a broker is stored as a directory containing multiple segment files:
+
+```
+/var/kafka/data/orders-0/
+  00000000000000000000.log         ← segment: events 0–999 (closed)
+  00000000000000000000.index       ← offset index for above segment
+  00000000000000000000.timeindex   ← time index for above segment
+  00000000000000001000.log         ← segment: events 1000–1999 (closed)
+  00000000000000001000.index
+  00000000000000001000.timeindex
+  00000000000000002000.log         ← active segment (being written to)
+  00000000000000002000.index
+  00000000000000002000.timeindex
+  leader-epoch-checkpoint
+```
+
+**Naming**: Segment files are named by the **base offset** — the first offset stored in that segment. This lets Kafka binary-search to the right segment for any given offset.
+
+**Active Segment**: The newest segment is the only one being appended to. It is never eligible for deletion or compaction until it is rolled (closed).
+
+**Segment Roll**: A new segment is created when:
+- Current segment exceeds `segment.bytes` (default: 1 GB).
+- Current segment has been open longer than `segment.ms` (default: 7 days).
+- The index file exceeds `segment.index.bytes` (default: 10 MB).
+
+### Offset Index (`.index` file)
+
+A sparse index mapping **message offset → physical byte position** in the `.log` file.
+
+```
+offset 0   → byte 0
+offset 50  → byte 4832
+offset 100 → byte 9920
+```
+
+- **Sparse**: One entry per `log.index.interval.bytes` (default: 4096 bytes of log data).
+- **Lookup**: To find offset 73, Kafka binary-searches the index, finds the closest entry ≤ 73 (e.g., offset 50 at byte 4832), then scans the `.log` file forward from that byte.
+- **Memory-mapped**: Index files are memory-mapped for fast access without system calls.
+
+### Time Index (`.timeindex` file)
+
+A sparse index mapping **timestamp → offset**, enabling time-based consumer seeks via `offsetsForTimes()`.
+
+```
+timestamp 1707667200000 → offset 50
+timestamp 1707667260000 → offset 130
+```
+
+Used when consumers call `consumer.offsetsForTimes(Map<TopicPartition, Long>)` to replay from a specific point in time.
+
+### Transaction Index (`.txnindex` file)
+
+Present only when transactional producers are used. Records aborted transaction ranges so consumers using `isolation.level=read_committed` can efficiently skip aborted messages.
+
+### Temporary Compaction Files
+
+During log compaction, Kafka creates `.cleaned` and `.swap` intermediate files in the partition directory. These are replaced atomically once compaction completes.
+
+## Configuration Examples
+
+### Segment Size and Roll Configs
+
+```properties
+# Topic-level (override broker defaults)
+segment.bytes=536870912        # Roll at 512 MB instead of 1 GB
+segment.ms=3600000             # Roll at least every 1 hour
+segment.index.bytes=10485760   # 10 MB index per segment (default)
+
+# Broker-level: index density
+log.index.interval.bytes=4096  # Index every 4 KB of log data (default)
+```
+
+### List Segment Files for a Partition
+
+```bash
+# View segment files for partition 0 of 'orders' topic
+ls -lh /var/kafka/data/orders-0/
+
+# Decode readable log content (development only)
+kafka-dump-log.sh \
+  --files /var/kafka/data/orders-0/00000000000000000000.log \
+  --print-data-log
+```
+
+### Consumer Time-Based Seek
+
+```java
+// Seek all partitions to events from 2 hours ago
+long targetTimestamp = System.currentTimeMillis() - (2 * 60 * 60 * 1000);
+Map<TopicPartition, Long> timestampsToSearch = new HashMap<>();
+for (TopicPartition tp : consumer.assignment()) {
+    timestampsToSearch.put(tp, targetTimestamp);
+}
+Map<TopicPartition, OffsetAndTimestamp> offsets = consumer.offsetsForTimes(timestampsToSearch);
+offsets.forEach((tp, offsetAndTimestamp) -> {
+    if (offsetAndTimestamp != null) {
+        consumer.seek(tp, offsetAndTimestamp.offset());
+    }
+});
+```
+
+## Real-World Example
+
+**Seeking to replay payments from 2 hours ago**:
+
+1. Consumer calls `consumer.offsetsForTimes({"payments", now - 2h})`.
+2. Broker binary-searches the `.timeindex` to find the closest timestamp ≤ target → returns offset (e.g., 48320).
+3. Broker binary-searches the `.index` for offset 48320 → byte position in `.log`.
+4. Reads sequentially from that byte forward.
+
+Result: O(log N) on tiny memory-mapped index files + at most one `log.index.interval.bytes` (~4 KB) of sequential scan. Effectively constant time regardless of total partition size.
+
+## Migration / Legacy Notes
+
+- Segment and index file format is stable across Kafka 2.x, 3.x, and 4.x. No migration of log data is needed when upgrading Kafka versions.
+- The `log.message.format.version` broker config (ZooKeeper-era cross-version compatibility) was removed in Kafka 4.0.
+
+## QnA
+
+**Q1: Why does Kafka use multiple segment files instead of one big file per partition?**
+A: Segments allow efficient O(1) deletion (remove an entire file), parallel compaction (compact old segments while appending to the active one), and binary-search navigation via base-offset named files. A single file would make deletion O(N).
+
+**Q2: Why can't the active segment be deleted by retention policy?**
+A: The active segment is being actively appended to. Retention only considers fully closed (rolled) segments. An active segment becomes eligible only after it rolls and a new active segment begins.
+
+**Q3: Is the offset index exact or approximate?**
+A: Approximate (sparse). Kafka finds the nearest index entry ≤ target offset, then scans the `.log` file linearly. Scan distance is bounded by `log.index.interval.bytes` (default 4096 bytes).
+
+**Q4: How does `segment.ms` interact with `retention.ms`?**
+A: If `retention.ms=3600000` (1 hour) but `segment.ms=86400000` (1 day), segments won't roll for a full day — nothing gets deleted despite the 1-hour retention. Always set `segment.ms ≤ retention.ms` for time-based retention to work correctly.
+
+**Q5: What tool can inspect segment files?**
+A: `kafka-dump-log.sh` (bundled with Kafka) decodes `.log` files and prints readable records. Use in development only — avoid on large production files.
+
+## Sources
+
+- [Apache Kafka Docs — Log Storage Design](https://kafka.apache.org/documentation/#log) (Retrieved: 2026-02-27)
+- [Confluent Docs — Kafka and the File System](https://docs.confluent.io/kafka/design/file-system-constant-time.html) (Retrieved: 2026-02-27)
+- [Confluent Docs — Kafka Log Compaction](https://docs.confluent.io/kafka/design/log_compaction.html) (Retrieved: 2026-02-27)
+- [Apache Kafka Docs — Topic Config: segment.bytes](https://kafka.apache.org/documentation/#topicconfigs_segment.bytes) (Retrieved: 2026-02-27)
+
+---
+
+# Kafka Journal — Log Cleanup Policies: Delete and Compaction (Date: 2026-02-27)
+
+## TL;DR
+
+- `cleanup.policy=delete` removes old segments based on time (`retention.ms`) or size (`retention.bytes`) — the default policy.
+- `cleanup.policy=compact` retains only the **latest value per key**, removing older duplicate-key records ("log compaction").
+- Both can be combined: `cleanup.policy=delete,compact` — compact first, then delete segments beyond the retention window.
+- Compaction is ideal for changelog/state topics; delete is ideal for event stream topics.
+
+## Why this matters
+
+Using the wrong cleanup policy wastes disk (delete on a state topic forces replaying all history) or loses data (compact on an event stream drops intermediate events). Getting this right is fundamental to Kafka data architecture.
+
+## Versions & Scope
+
+- Applies to Kafka 3.x.x and 4.x.x (KRaft mode).
+- Log compaction behavior unchanged across versions; the compaction thread operates identically.
+- `delete,compact` combination stable since Kafka 2.x.
+
+## Core Concepts
+
+### cleanup.policy=delete (Default)
+
+Segments are deleted when they breach either limit:
+- **Time limit**: Segment's last-modified time is older than `retention.ms` (default: 7 days).
+- **Size limit**: Total partition log size exceeds `retention.bytes` (default: -1 = unlimited).
+
+The **active segment is never deleted** — only fully closed (rolled) segments are candidates.
+
+```
+Partition log (retention.ms = 1 day):
+
+[Seg 0: 3 days old] [Seg 1: 2 days old] [Seg 2: 12 hrs old] [Seg 3: active]
+         ↑                    ↑
+       DELETED             DELETED              kept (within 1 day)
+```
+
+Key broker config: `log.retention.check.interval.ms` (default: 300s) — how often the broker scans for segments to delete.
+
+### cleanup.policy=compact (Log Compaction)
+
+Kafka retains only the **latest record per key** in compacted segments. Older records with the same key are removed by a background log cleaner thread.
+
+```
+Before compaction:
+key=alice → val=v1
+key=bob   → val=v1
+key=alice → val=v2   ← newer
+key=carol → val=v1
+key=bob   → val=v2   ← newer
+key=alice → val=v3   ← newest
+
+After compaction:
+key=alice → val=v3
+key=bob   → val=v2
+key=carol → val=v1
+```
+
+**Tombstone Records**: A record with `key=X, value=null` signals deletion. After compaction, the tombstone remains for `delete.retention.ms` (default: 24 hrs) so consumers can observe the deletion, then it is permanently removed.
+
+**Log Head vs Tail**:
+- **Head**: Active (recent) portion — new writes land here. May have multiple records per key. NOT compacted.
+- **Tail**: Previously compacted segments — each key appears at most once here.
+
+**Requirements for compaction**:
+- Records must have non-null keys (null-key records cannot be compacted).
+- `log.cleaner.enable=true` at the broker (default: true).
+
+**Common use cases**:
+- Kafka Streams changelog topics (state store snapshots for crash recovery).
+- CDC (Change Data Capture) topics where only current row state matters.
+- Application config / feature flag topics.
+
+### cleanup.policy=delete,compact (Combined)
+
+- The log cleaner deduplicates by key (compaction) on tail segments.
+- Time/size retention then deletes entire old segments that exceed the retention window.
+- Useful for latest-state semantics **and** eventual cleanup after a retention window.
+
+**Example**: User profile topic with `compact,delete` + `retention.ms=7776000000` (90 days) → keeps latest value per user indefinitely while active, but removes profiles of users who haven't updated in 90 days.
+
+### Log Cleaner Configuration
+
+```properties
+# Broker-level (controls the compaction background thread)
+log.cleaner.enable=true                  # Must be true for compaction (default: true)
+log.cleaner.threads=1                    # Compaction threads (increase for busy clusters)
+log.cleaner.min.cleanable.ratio=0.5      # Run compaction when dirty/total ratio > 50%
+log.cleaner.min.compaction.lag.ms=0      # Min age before a record is eligible for compaction
+delete.retention.ms=86400000             # How long tombstones are retained (default: 24 hrs)
+```
+
+## Configuration Examples
+
+### Delete Policy (Event Stream Topic)
+
+```bash
+kafka-topics.sh --create \
+  --bootstrap-server localhost:9092 \
+  --topic clickstream \
+  --partitions 12 \
+  --replication-factor 3 \
+  --config cleanup.policy=delete \
+  --config retention.ms=86400000 \
+  --config retention.bytes=10737418240
+```
+
+### Compact Policy (State / CDC Topic)
+
+```bash
+kafka-topics.sh --create \
+  --bootstrap-server localhost:9092 \
+  --topic user-profiles \
+  --partitions 6 \
+  --replication-factor 3 \
+  --config cleanup.policy=compact \
+  --config min.cleanable.dirty.ratio=0.1 \
+  --config delete.retention.ms=86400000
+```
+
+### Combined Policy
+
+```bash
+kafka-topics.sh --create \
+  --bootstrap-server localhost:9092 \
+  --topic inventory-snapshots \
+  --partitions 6 \
+  --replication-factor 3 \
+  --config "cleanup.policy=compact,delete" \
+  --config retention.ms=2592000000 \
+  --config delete.retention.ms=86400000
+```
+
+### Produce a Tombstone (Delete a Key from Compacted Topic)
+
+```java
+// Send null value to signal deletion of a key
+ProducerRecord<String, String> tombstone = new ProducerRecord<>(
+    "user-profiles",    // topic
+    "user-alice-uuid",  // key
+    null                // null value = tombstone
+);
+producer.send(tombstone);
+// After delete.retention.ms + next compaction run, alice's record is gone
+```
+
+## Real-World Example
+
+**E-commerce product catalog**:
+
+- Topic: `product-catalog`
+- Policy: `cleanup.policy=compact`
+- Key: `productId`
+
+When a product is updated 10 times over a month, Kafka keeps only the latest record per `productId`. A new search indexer consumer group spun up months later replays the topic and gets the current state of all products — not 10x the data. When a product is discontinued, a tombstone (`productId → null`) is produced; after compaction + `delete.retention.ms`, its record is cleanly removed.
+
+## Migration / Legacy Notes
+
+- Compaction behavior is unchanged from Kafka 2.x → 3.x → 4.x.
+- `log.cleaner.enable=false` at broker level disables all compaction globally. Never disable in production if any topics use `compact` policy.
+- Combined `cleanup.policy=delete,compact` was introduced in Kafka 0.10.1 and is fully stable in modern versions.
+
+## QnA
+
+**Q1: Does log compaction guarantee all keys are present in the compacted log?**
+A: Yes — every key ever written will have its latest value present in the tail, unless a tombstone was sent AND `delete.retention.ms` has expired.
+
+**Q2: Can I use log compaction on a topic with null-key records?**
+A: No. Records with null keys have no key to deduplicate on and are not compacted. They persist unless `delete` policy is also applied.
+
+**Q3: Is the head of the log (active region) compacted?**
+A: No. Only the tail (closed segments) is compacted. Consumers reading the head may see multiple records with the same key.
+
+**Q4: What does `min.cleanable.dirty.ratio=0.5` mean?**
+A: The cleaner runs compaction on a partition when dirty (uncompacted) bytes / total bytes > 50%. Lower values = more frequent compaction = cleaner log + more CPU overhead.
+
+**Q5: How long does a tombstone survive after compaction?**
+A: At least `delete.retention.ms` (default: 24 hours) after the compaction run that processed it. This window lets lagging consumers observe the deletion before the tombstone disappears permanently.
+
+**Q6: Can I change `cleanup.policy` on an existing topic?**
+A: Yes, dynamically: `kafka-configs.sh --alter --add-config cleanup.policy=compact`. The cleaner applies the new policy on the next compaction run. Changing from `compact` to `delete` does not recover already-compacted (deduplicated) records.
+
+## Sources
+
+- [Apache Kafka Docs — Log Retention](https://kafka.apache.org/documentation/#log_retention) (Retrieved: 2026-02-27)
+- [Confluent Docs — Kafka Log Compaction](https://docs.confluent.io/kafka/design/log_compaction.html) (Retrieved: 2026-02-27)
+- [Apache Kafka Docs — Topic Config: cleanup.policy](https://kafka.apache.org/documentation/#topicconfigs_cleanup.policy) (Retrieved: 2026-02-27)
+- [Apache Kafka Docs — Topic Config: delete.retention.ms](https://kafka.apache.org/documentation/#topicconfigs_delete.retention.ms) (Retrieved: 2026-02-27)
+
+---
+
+# Kafka Journal — Unclean Leader Election and Large Messages (Date: 2026-02-27)
+
+## TL;DR
+
+- **Unclean leader election** allows an out-of-sync replica to become leader when all ISR replicas are unavailable — trading **data loss** for **availability**. Disabled by default (`false`) since Kafka 0.11.
+- **Large messages** require coordinated config changes across producer (`max.request.size`), broker/topic (`message.max.bytes` / `max.message.bytes`), replica (`replica.fetch.max.bytes`), and consumer (`max.partition.fetch.bytes`) — all must accommodate the message size.
+- Both are edge-case configs with significant trade-offs: enable or increase them only with full awareness of consequences.
+
+## Why this matters
+
+Unclean leader election and large message sizing are among the most common sources of unexpected data loss or pipeline failures in production. Getting them wrong leads to either silent data loss or `RecordTooLargeException` across producers, brokers, or consumers.
+
+## Versions & Scope
+
+- Applies to Kafka 3.x.x and 4.x.x (KRaft mode).
+- `unclean.leader.election.enable` has defaulted to `false` since Kafka 0.11; unchanged in 3.x and 4.x.
+- Large message limits and defaults are consistent across 3.x and 4.x.
+
+## Core Concepts — Unclean Leader Election
+
+### Normal Leader Election (Clean)
+
+When a partition leader fails, Kafka elects a new leader **only from the ISR (In-Sync Replicas)** — replicas fully caught up with the leader. This guarantees no data loss.
+
+```
+Leader (Broker 1) FAILS
+ISR: [Broker 2, Broker 3]   ← both in-sync
+New leader → Broker 2        ← safe, zero data loss
+```
+
+### Unclean Leader Election
+
+If all ISR replicas are unavailable simultaneously, Kafka must choose:
+1. **Wait** for an ISR replica to come back → partition stays offline.
+2. **Elect an out-of-sync replica** → potential **permanent data loss**.
+
+Option 2 is "unclean" leader election:
+
+```
+Leader (Broker 1) FAILS
+ISR replica (Broker 2) also DOWN
+Out-of-sync replica (Broker 3): lagging by 500 messages
+
+unclean.leader.election.enable=true:
+→ Broker 3 becomes leader
+→ 500 messages that existed on Broker 1 and not replicated to Broker 3 are LOST forever
+```
+
+### Configuration
+
+```properties
+# Broker-level default (all topics)
+unclean.leader.election.enable=false   # Default (safe) — partition goes offline if all ISR unavailable
+```
+
+```bash
+# Per-topic override — enable only for low-value topics
+kafka-configs.sh --bootstrap-server localhost:9092 \
+  --entity-type topics \
+  --entity-name system-metrics \
+  --alter \
+  --add-config unclean.leader.election.enable=true
+```
+
+**Enable only when**: availability trumps durability — e.g., real-time dashboards, low-value telemetry, monitoring metrics where losing a few data points is tolerable but downtime is not.
+
+**Never enable for**: financial transactions, audit logs, order events, or any topic where every message must be preserved.
+
+### Preventing All-ISR-Down Scenarios
+
+- Use `replication.factor=3` + `min.insync.replicas=2`.
+- Tune `replica.lag.time.max.ms` (default: 30s) — replicas not keeping up are ejected from ISR.
+- Monitor JMX: `kafka.controller:type=ControllerStats,name=UncleanLeaderElectionsPerSec` — any value > 0 means data was lost.
+
+---
+
+## Core Concepts — Large Messages
+
+Kafka is optimized for messages in the **1 KB–1 MB** range. Default max is ~1 MB. Sending larger messages requires coordinating configs at every layer.
+
+### The Three-Layer Size Chain
+
+```
+Producer ──────────────→ Broker ──────────────→ Consumer
+
+max.request.size      message.max.bytes      max.partition.fetch.bytes
+(producer config)  ≤  (broker/topic config) ≤  (consumer config)
+```
+
+If any layer's limit is smaller than the message, the pipeline breaks at that point.
+
+### Config Reference
+
+| Layer | Config | Default | Description |
+|---|---|---|---|
+| **Producer** | `max.request.size` | `1048576` (1 MB) | Max total size of a single produce request |
+| **Broker** (global) | `message.max.bytes` | `1000012` (~1 MB) | Max message size for all topics |
+| **Topic** | `max.message.bytes` | Inherits broker | Per-topic override (preferred) |
+| **Consumer** | `fetch.max.bytes` | `52428800` (50 MB) | Total bytes fetched per consumer request |
+| **Consumer** | `max.partition.fetch.bytes` | `1048576` (1 MB) | Max bytes per partition per fetch |
+| **Replica** | `replica.fetch.max.bytes` | `1048576` (1 MB) | Max bytes in broker-to-broker replication |
+
+⚠️ **`replica.fetch.max.bytes` is frequently overlooked**: if smaller than `max.message.bytes`, broker-to-broker replication silently fails and partitions become under-replicated.
+
+### Error Symptoms by Layer
+
+| Error | Cause |
+|---|---|
+| Producer: `RecordTooLargeException` | `max.request.size` too small |
+| Broker rejects with `MESSAGE_TOO_LARGE` | `message.max.bytes` / `max.message.bytes` too small |
+| Consumer gets empty/truncated batches | `max.partition.fetch.bytes` too small |
+| Partition becomes under-replicated | `replica.fetch.max.bytes` too small |
+
+## Configuration Examples
+
+### Large Messages — Coordinated Config (10 MB example)
+
+**Broker (`server.properties`)**:
+```properties
+message.max.bytes=10485760         # Allow up to 10 MB messages
+replica.fetch.max.bytes=10485760   # Replication must match
+```
+
+**Topic-level override (preferred over broker-global change)**:
+```bash
+kafka-configs.sh --bootstrap-server localhost:9092 \
+  --entity-type topics \
+  --entity-name media-events \
+  --alter \
+  --add-config max.message.bytes=10485760
+```
+
+**Producer**:
+```properties
+max.request.size=10485760
+```
+
+**Consumer**:
+```properties
+max.partition.fetch.bytes=10485760
+fetch.max.bytes=52428800           # Keep >= max.partition.fetch.bytes
+```
+
+### Claim-Check Pattern (Recommended for Payloads > 1 MB)
+
+Store large payload externally and send only a reference through Kafka:
+
+```typescript
+// Producer: upload payload to S3, send reference in Kafka
+const uploadResult = await s3.upload(largePayload, "s3://bucket/payloads/evt-001");
+
+await producer.send({
+  topic: "media-events",
+  messages: [{
+    key: "evt-001",
+    value: JSON.stringify({
+      eventId: "evt-001",
+      payloadRef: uploadResult.Location,  // S3 URL
+      payloadSizeBytes: largePayload.length
+    })
+  }]
+});
+
+// Consumer: fetch actual payload from S3
+const event = JSON.parse(message.value.toString());
+const payload = await s3.getObject(event.payloadRef);
+```
+
+This keeps Kafka messages small (~hundreds of bytes) and is the recommended pattern for payloads consistently > 1 MB.
+
+## Real-World Example
+
+**Video processing platform**:
+
+| Topic | Config Applied | Reason |
+|---|---|---|
+| `video-metadata` | Default (1 MB) | Small ~2 KB metadata — no changes needed |
+| `video-thumbnails` | `max.message.bytes=6291456` + matching replica/consumer configs | Compressed thumbnails up to 5 MB |
+| `ingest-health` | `unclean.leader.election.enable=true` | Dashboard stays up during broker failure; losing a few metrics is acceptable |
+
+For `video-thumbnails`, also set `replica.fetch.max.bytes=6291456` at broker level and monitor replication lag closely after deployment.
+
+## Migration / Legacy Notes
+
+- **Kafka <0.11**: `unclean.leader.election.enable` defaulted to `true`. Clusters upgrading from very old Kafka must explicitly verify and set this to `false`.
+- **Kafka 4.0**: No behavioral changes to either feature. Defaults unchanged.
+- `replica.fetch.max.bytes` has never been increased in defaults alongside `message.max.bytes` — always set both explicitly together when raising message size limits.
+
+## QnA
+
+**Q1: If `unclean.leader.election.enable=false` and all ISR replicas are down, what happens?**
+A: The partition goes **offline**. Producers get `NotLeaderOrFollowerException` and consumers cannot read. The partition stays offline until at least one ISR replica comes back and is elected leader.
+
+**Q2: Can I enable unclean election cluster-wide but disable it for specific critical topics?**
+A: Yes. Set `unclean.leader.election.enable=true` at the broker level, then override: `kafka-configs.sh --alter --add-config unclean.leader.election.enable=false --entity-name payments`. Topic-level config takes precedence.
+
+**Q3: Why do I get `RecordTooLargeException` even after increasing `message.max.bytes` on the broker?**
+A: You likely forgot to also increase `max.request.size` on the producer client. Check all three layers: producer, broker (or topic), and consumer.
+
+**Q4: Does sending large messages degrade Kafka performance?**
+A: Yes. Large messages increase memory pressure on producers, brokers, and consumers, and inflate replication traffic. For payloads consistently > 1 MB, the claim-check pattern is preferred.
+
+**Q5: What is `replica.lag.time.max.ms` and how does it relate to unclean election?**
+A: `replica.lag.time.max.ms` (default: 30s) is the max time a follower can lag before being removed from ISR. If all replicas lag simultaneously (e.g., during a network partition), ISR goes empty — triggering the unclean election decision.
+
+**Q6: How do I detect when unclean leader election has occurred?**
+A: Monitor JMX metric `kafka.controller:type=ControllerStats,name=UncleanLeaderElectionsPerSec`. Any value > 0 indicates data loss. Set production alerts on this metric.
+
+## Sources
+
+- [Apache Kafka Docs — Replication Design](https://kafka.apache.org/documentation/#replication) (Retrieved: 2026-02-27)
+- [Confluent Docs — Kafka Replication and Committed Messages](https://docs.confluent.io/kafka/design/replication.html) (Retrieved: 2026-02-27)
+- [Apache Kafka Docs — Broker Config: unclean.leader.election.enable](https://kafka.apache.org/documentation/#brokerconfigs_unclean.leader.election.enable) (Retrieved: 2026-02-27)
+- [Apache Kafka Docs — Topic Config: max.message.bytes](https://kafka.apache.org/documentation/#topicconfigs_max.message.bytes) (Retrieved: 2026-02-27)
+- [Apache Kafka Docs — Producer Config: max.request.size](https://kafka.apache.org/documentation/#producerconfigs_max.request.size) (Retrieved: 2026-02-27)
