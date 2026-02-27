@@ -5179,11 +5179,11 @@ One-size-fits-all broker defaults are rarely optimal. A high-volume audit log to
 
 Control how long or how much data Kafka keeps per partition:
 
-| Config | Default | Description |
-|---|---|---|
-| `retention.ms` | `604800000` (7 days) | Retain events for this duration |
-| `retention.bytes` | `-1` (unlimited) | Max bytes retained per partition |
-| `log.retention.check.interval.ms` | `300000` (5 min) | How often broker checks for segments to delete |
+| Config                            | Default              | Description                                    |
+| --------------------------------- | -------------------- | ---------------------------------------------- |
+| `retention.ms`                    | `604800000` (7 days) | Retain events for this duration                |
+| `retention.bytes`                 | `-1` (unlimited)     | Max bytes retained per partition               |
+| `log.retention.check.interval.ms` | `300000` (5 min)     | How often broker checks for segments to delete |
 
 Both can be combined: whichever limit is hit first triggers deletion.
 
@@ -5191,28 +5191,28 @@ Both can be combined: whichever limit is hit first triggers deletion.
 
 Each partition log is divided into segment files. Older segments are candidates for cleanup:
 
-| Config | Default | Description |
-|---|---|---|
-| `segment.bytes` | `1073741824` (1 GB) | Max size per segment file before rolling |
-| `segment.ms` | `604800000` (7 days) | Roll a new segment after this time even if not full |
-| `segment.index.bytes` | `10485760` (10 MB) | Max size of offset index per segment |
+| Config                | Default              | Description                                         |
+| --------------------- | -------------------- | --------------------------------------------------- |
+| `segment.bytes`       | `1073741824` (1 GB)  | Max size per segment file before rolling            |
+| `segment.ms`          | `604800000` (7 days) | Roll a new segment after this time even if not full |
+| `segment.index.bytes` | `10485760` (10 MB)   | Max size of offset index per segment                |
 
 ### Replication and Durability Configs
 
-| Config | Default | Description |
-|---|---|---|
-| `replication.factor` | Broker `default.replication.factor` | How many copies of each partition |
-| `min.insync.replicas` | `1` | Min replicas that must ack writes (used with `acks=all`) |
-| `unclean.leader.election.enable` | `false` | Allow out-of-sync replica to become leader |
+| Config                           | Default                             | Description                                              |
+| -------------------------------- | ----------------------------------- | -------------------------------------------------------- |
+| `replication.factor`             | Broker `default.replication.factor` | How many copies of each partition                        |
+| `min.insync.replicas`            | `1`                                 | Min replicas that must ack writes (used with `acks=all`) |
+| `unclean.leader.election.enable` | `false`                             | Allow out-of-sync replica to become leader               |
 
 ### Other Important Configs
 
-| Config | Default | Description |
-|---|---|---|
-| `cleanup.policy` | `delete` | `delete`, `compact`, or `delete,compact` |
-| `max.message.bytes` | `1048588` (~1 MB) | Max size of a single message for this topic |
-| `compression.type` | `producer` | Broker-side compression (`none`, `gzip`, `snappy`, `lz4`, `zstd`, `producer`) |
-| `message.timestamp.type` | `CreateTime` | Use producer timestamp or broker log-append time |
+| Config                   | Default           | Description                                                                   |
+| ------------------------ | ----------------- | ----------------------------------------------------------------------------- |
+| `cleanup.policy`         | `delete`          | `delete`, `compact`, or `delete,compact`                                      |
+| `max.message.bytes`      | `1048588` (~1 MB) | Max size of a single message for this topic                                   |
+| `compression.type`       | `producer`        | Broker-side compression (`none`, `gzip`, `snappy`, `lz4`, `zstd`, `producer`) |
+| `message.timestamp.type` | `CreateTime`      | Use producer timestamp or broker log-append time                              |
 
 ## Configuration Examples
 
@@ -5265,12 +5265,12 @@ compression.type=lz4
 
 **Multi-topic pipeline with different retention needs**:
 
-| Topic | Config | Why |
-|---|---|---|
+| Topic             | Config           | Why                                                   |
+| ----------------- | ---------------- | ----------------------------------------------------- |
 | `clickstream-raw` | 1 day, 10 GB cap | High volume, short-lived, feeds downstream processing |
-| `payment-events` | 90 days | Compliance / audit requirement |
-| `user-profiles` | `compact` only | Latest state per user, no time limit |
-| `dead-letter` | 7 days | Manual inspection window before discard |
+| `payment-events`  | 90 days          | Compliance / audit requirement                        |
+| `user-profiles`   | `compact` only   | Latest state per user, no time limit                  |
+| `dead-letter`     | 7 days           | Manual inspection window before discard               |
 
 Each topic created with its own config overrides while sharing the same cluster.
 
@@ -5349,6 +5349,7 @@ Each partition on a broker is stored as a directory containing multiple segment 
 **Active Segment**: The newest segment is the only one being appended to. It is never eligible for deletion or compaction until it is rolled (closed).
 
 **Segment Roll**: A new segment is created when:
+
 - Current segment exceeds `segment.bytes` (default: 1 GB).
 - Current segment has been open longer than `segment.ms` (default: 7 days).
 - The index file exceeds `segment.index.bytes` (default: 10 MB).
@@ -5495,6 +5496,7 @@ Using the wrong cleanup policy wastes disk (delete on a state topic forces repla
 ### cleanup.policy=delete (Default)
 
 Segments are deleted when they breach either limit:
+
 - **Time limit**: Segment's last-modified time is older than `retention.ms` (default: 7 days).
 - **Size limit**: Total partition log size exceeds `retention.bytes` (default: -1 = unlimited).
 
@@ -5532,14 +5534,17 @@ key=carol → val=v1
 **Tombstone Records**: A record with `key=X, value=null` signals deletion. After compaction, the tombstone remains for `delete.retention.ms` (default: 24 hrs) so consumers can observe the deletion, then it is permanently removed.
 
 **Log Head vs Tail**:
+
 - **Head**: Active (recent) portion — new writes land here. May have multiple records per key. NOT compacted.
 - **Tail**: Previously compacted segments — each key appears at most once here.
 
 **Requirements for compaction**:
+
 - Records must have non-null keys (null-key records cannot be compacted).
 - `log.cleaner.enable=true` at the broker (default: true).
 
 **Common use cases**:
+
 - Kafka Streams changelog topics (state store snapshots for crash recovery).
 - CDC (Change Data Capture) topics where only current row state matters.
 - Application config / feature flag topics.
@@ -5695,6 +5700,7 @@ New leader → Broker 2        ← safe, zero data loss
 ### Unclean Leader Election
 
 If all ISR replicas are unavailable simultaneously, Kafka must choose:
+
 1. **Wait** for an ISR replica to come back → partition stays offline.
 2. **Elect an out-of-sync replica** → potential **permanent data loss**.
 
@@ -5755,37 +5761,39 @@ If any layer's limit is smaller than the message, the pipeline breaks at that po
 
 ### Config Reference
 
-| Layer | Config | Default | Description |
-|---|---|---|---|
-| **Producer** | `max.request.size` | `1048576` (1 MB) | Max total size of a single produce request |
-| **Broker** (global) | `message.max.bytes` | `1000012` (~1 MB) | Max message size for all topics |
-| **Topic** | `max.message.bytes` | Inherits broker | Per-topic override (preferred) |
-| **Consumer** | `fetch.max.bytes` | `52428800` (50 MB) | Total bytes fetched per consumer request |
-| **Consumer** | `max.partition.fetch.bytes` | `1048576` (1 MB) | Max bytes per partition per fetch |
-| **Replica** | `replica.fetch.max.bytes` | `1048576` (1 MB) | Max bytes in broker-to-broker replication |
+| Layer               | Config                      | Default            | Description                                |
+| ------------------- | --------------------------- | ------------------ | ------------------------------------------ |
+| **Producer**        | `max.request.size`          | `1048576` (1 MB)   | Max total size of a single produce request |
+| **Broker** (global) | `message.max.bytes`         | `1000012` (~1 MB)  | Max message size for all topics            |
+| **Topic**           | `max.message.bytes`         | Inherits broker    | Per-topic override (preferred)             |
+| **Consumer**        | `fetch.max.bytes`           | `52428800` (50 MB) | Total bytes fetched per consumer request   |
+| **Consumer**        | `max.partition.fetch.bytes` | `1048576` (1 MB)   | Max bytes per partition per fetch          |
+| **Replica**         | `replica.fetch.max.bytes`   | `1048576` (1 MB)   | Max bytes in broker-to-broker replication  |
 
 ⚠️ **`replica.fetch.max.bytes` is frequently overlooked**: if smaller than `max.message.bytes`, broker-to-broker replication silently fails and partitions become under-replicated.
 
 ### Error Symptoms by Layer
 
-| Error | Cause |
-|---|---|
-| Producer: `RecordTooLargeException` | `max.request.size` too small |
+| Error                                   | Cause                                               |
+| --------------------------------------- | --------------------------------------------------- |
+| Producer: `RecordTooLargeException`     | `max.request.size` too small                        |
 | Broker rejects with `MESSAGE_TOO_LARGE` | `message.max.bytes` / `max.message.bytes` too small |
-| Consumer gets empty/truncated batches | `max.partition.fetch.bytes` too small |
-| Partition becomes under-replicated | `replica.fetch.max.bytes` too small |
+| Consumer gets empty/truncated batches   | `max.partition.fetch.bytes` too small               |
+| Partition becomes under-replicated      | `replica.fetch.max.bytes` too small                 |
 
 ## Configuration Examples
 
 ### Large Messages — Coordinated Config (10 MB example)
 
 **Broker (`server.properties`)**:
+
 ```properties
 message.max.bytes=10485760         # Allow up to 10 MB messages
 replica.fetch.max.bytes=10485760   # Replication must match
 ```
 
 **Topic-level override (preferred over broker-global change)**:
+
 ```bash
 kafka-configs.sh --bootstrap-server localhost:9092 \
   --entity-type topics \
@@ -5795,11 +5803,13 @@ kafka-configs.sh --bootstrap-server localhost:9092 \
 ```
 
 **Producer**:
+
 ```properties
 max.request.size=10485760
 ```
 
 **Consumer**:
+
 ```properties
 max.partition.fetch.bytes=10485760
 fetch.max.bytes=52428800           # Keep >= max.partition.fetch.bytes
@@ -5811,18 +5821,23 @@ Store large payload externally and send only a reference through Kafka:
 
 ```typescript
 // Producer: upload payload to S3, send reference in Kafka
-const uploadResult = await s3.upload(largePayload, "s3://bucket/payloads/evt-001");
+const uploadResult = await s3.upload(
+  largePayload,
+  "s3://bucket/payloads/evt-001",
+);
 
 await producer.send({
   topic: "media-events",
-  messages: [{
-    key: "evt-001",
-    value: JSON.stringify({
-      eventId: "evt-001",
-      payloadRef: uploadResult.Location,  // S3 URL
-      payloadSizeBytes: largePayload.length
-    })
-  }]
+  messages: [
+    {
+      key: "evt-001",
+      value: JSON.stringify({
+        eventId: "evt-001",
+        payloadRef: uploadResult.Location, // S3 URL
+        payloadSizeBytes: largePayload.length,
+      }),
+    },
+  ],
 });
 
 // Consumer: fetch actual payload from S3
@@ -5836,11 +5851,11 @@ This keeps Kafka messages small (~hundreds of bytes) and is the recommended patt
 
 **Video processing platform**:
 
-| Topic | Config Applied | Reason |
-|---|---|---|
-| `video-metadata` | Default (1 MB) | Small ~2 KB metadata — no changes needed |
-| `video-thumbnails` | `max.message.bytes=6291456` + matching replica/consumer configs | Compressed thumbnails up to 5 MB |
-| `ingest-health` | `unclean.leader.election.enable=true` | Dashboard stays up during broker failure; losing a few metrics is acceptable |
+| Topic              | Config Applied                                                  | Reason                                                                       |
+| ------------------ | --------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `video-metadata`   | Default (1 MB)                                                  | Small ~2 KB metadata — no changes needed                                     |
+| `video-thumbnails` | `max.message.bytes=6291456` + matching replica/consumer configs | Compressed thumbnails up to 5 MB                                             |
+| `ingest-health`    | `unclean.leader.election.enable=true`                           | Dashboard stays up during broker failure; losing a few metrics is acceptable |
 
 For `video-thumbnails`, also set `replica.fetch.max.bytes=6291456` at broker level and monitor replication lag closely after deployment.
 
