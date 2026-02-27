@@ -26,10 +26,14 @@ const producer = kafka.producer({
   // kafka-configs.sh --bootstrap-server localhost:9092 --alter --entity-type topics --entity-name my_topic_name --add-config min.insync.replicas=2
   "delivery.timeout.ms": 120000, // 2 minutes
   "request.timeout.ms": 30000, // 30 seconds
-  retries: Number.MAX_SAFE_INTEGER, // effectively unlimited retries
+  retries: 2147483647, // effectively unlimited retries
   "max.in.flight.requests.per.connection": 5, // higher than 1 to allow for better throughput, but still safe with idempotence enabled
-  
+
   // compression and batching settings for high throughput and reduced bandwidth usage
+  // kindly enable it in the production, I measure huge improvement in datastorage vs raw json events
+  // 11 K wikimedia events took 13 MB data, where most (70%+) are compresses taking 6 MB data only
+  // Also make sure that compression happens at the producer level, and not at broker level. We can enforce at broker level but 
+  //  that could drastically  
   "compression.type": "snappy", // compress messages to reduce bandwidth and improve throughput
   "linger.ms": 50,
   "batch.size": 32 * 1024, // 32 KB batch size

@@ -4,12 +4,15 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "dev": "tsx kafka-producer.ts",
+        "dev": "tsx index.ts",
+        "dev:producer": "tsx producers/wikimedia-events.stream.ts",
+        "dev:consumer": "tsx consumers/wikimedia-events.consumer.ts",
         "build": "tsc -p tsconfig.json",
-        "start": "node dist/kafka-producer.js"
+        "start": "node dist/index.js"
     },
     "dependencies": {
         "@confluentinc/kafka-javascript": "^1.8.0",
+        "dotenv": "^17.3.1",
         "eventsource": "^2.0.2"
     },
     "devDependencies": {
