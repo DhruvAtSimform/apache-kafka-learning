@@ -1,0 +1,14 @@
+{
+    "name": "usage-events-producer",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "description": "Lightweight stress producer for usage-event-api ingest endpoint",
+    "scripts": {
+        "start": "node src/index.js",
+        "start:peak": "node src/index.js --peak-rps=500 --workers=10 --interval-ms=100 --max-events=5000"
+    },
+    "engines": {
+        "node": ">=18"
+    }
+}
