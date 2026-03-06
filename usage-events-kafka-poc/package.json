@@ -1,0 +1,14 @@
+{
+    "name": "usage-events-kafka-poc",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "description": "Parent orchestrator for usage-event-api, consumer, and producer load tests",
+    "scripts": {
+        "orchestrate": "node scripts/orchestrator.js",
+        "orchestrate:peak": "node scripts/orchestrator.js --peak-rps=500 --workers=10 --max-events=5000 --interval-ms=100"
+    },
+    "engines": {
+        "node": ">=20"
+    }
+}
